@@ -23,7 +23,9 @@ class LocalScanner:
         self.definitions = definitions
         self.max_file_size = max(1, int(max_file_size_mb)) * 1024 * 1024
         self.enable_heuristics = enable_heuristics
-        self._hash_lookup = {signature.value: signature for signature in definitions.hash_signatures}
+        self._hash_lookup: dict[str, dict[str, object]] = {}
+        for signature in definitions.hash_signatures:
+            self._hash_lookup.setdefault(signature.kind, {})[signature.value] = signature
         self._patterns = [signature for signature in definitions.content_signatures if signature.value]
         self._max_pattern_length = max((len(sig.value.encode("utf-8")) for sig in self._patterns), default=0)
 
@@ -65,7 +67,11 @@ class LocalScanner:
         if stat.st_size > self.max_file_size:
             return []
 
-        digest = hashlib.sha256()
+        hashers = {
+            "md5": hashlib.md5(usedforsecurity=False),
+            "sha1": hashlib.sha1(usedforsecurity=False),
+            "sha256": hashlib.sha256(),
+        }
         pattern_matches: dict[str, ScanFinding] = {}
         tail = b""
         encoded_patterns = [(sig, sig.value.encode("utf-8", errors="ignore")) for sig in self._patterns]
@@ -75,7 +81,8 @@ class LocalScanner:
                 chunk = handle.read(1024 * 1024)
                 if not chunk:
                     break
-                digest.update(chunk)
+                for hasher in hashers.values():
+                    hasher.update(chunk)
                 if encoded_patterns:
                     searchable = tail + chunk
                     for signature, pattern in encoded_patterns:
@@ -91,23 +98,25 @@ class LocalScanner:
                     if self._max_pattern_length > 1:
                         tail = searchable[-(self._max_pattern_length - 1) :]
 
-        sha256 = digest.hexdigest()
+        file_hashes = {algorithm: hasher.hexdigest() for algorithm, hasher in hashers.items()}
+        sha256 = file_hashes["sha256"]
         findings = list(pattern_matches.values())
         for finding in findings:
             finding.sha256 = sha256
 
-        if sha256 in self._hash_lookup:
-            signature = self._hash_lookup[sha256]
-            findings.append(
-                ScanFinding(
-                    path=str(path),
-                    threat_name=signature.name,
-                    severity=signature.severity,
-                    reason=f"Known SHA-256 signature match: {signature.id}",
-                    sha256=sha256,
-                    size=stat.st_size,
+        for algorithm, digest in file_hashes.items():
+            signature = self._hash_lookup.get(algorithm, {}).get(digest)
+            if signature:
+                findings.append(
+                    ScanFinding(
+                        path=str(path),
+                        threat_name=signature.name,
+                        severity=signature.severity,
+                        reason=f"Known {algorithm.upper()} signature match: {signature.id}",
+                        sha256=sha256,
+                        size=stat.st_size,
+                    )
                 )
-            )
 
         if self.enable_heuristics:
             heuristic = self._heuristic_finding(path, sha256, stat.st_size)

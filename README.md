@@ -6,13 +6,24 @@ LocalShield AV is a native local desktop antivirus-style tool for Windows. It us
 
 - Scans a selected file or folder locally.
 - Checks SHA-256 hash signatures from `definitions/signatures.json`.
+- Checks imported MD5, SHA-1, and SHA-256 file-hash signatures.
 - Checks harmless content signatures.
 - Flags basic heuristic review items such as risky script extensions and disguised double extensions.
-- Quarantines, restores, and permanently deletes detected files.
+- Quarantines, restores, and permanently deletes files only after explicit user approval.
 - Keeps logs and settings under `%LOCALAPPDATA%\LocalShieldAV`.
-- Imports definitions from a local JSON file or downloads them from a URL you explicitly configure.
+- Imports definitions from a local JSON file or from supported source presets.
 
 This is a legitimate defensive scanner prototype. It is not a replacement for Microsoft Defender or a commercial antivirus engine.
+
+## Safety model
+
+Scans are read-only. Detection does not automatically quarantine, delete, restore, upload, or modify files. Quarantine and delete actions are available only from user-selected buttons, and destructive actions require confirmation.
+
+## Definition sources
+
+The bundled starting definitions are a small local test set: the EICAR test-file hash plus the harmless `LOCALSHIELD_TEST_THREAT` marker. They are for validating the scanner, not broad malware coverage.
+
+The Updates tab includes a definitions source dropdown. Supported online presets currently include official ClamAV `daily.cvd` and `main.cvd` imports. LocalShield converts compatible ClamAV file-hash signatures into its local JSON format. ClamAV bytecode signatures and abuse.ch sources are listed as known sources but require additional engine or API-key support before they can be used directly.
 
 ## Run locally
 

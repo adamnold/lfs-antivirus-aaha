@@ -69,8 +69,9 @@ def write_json(path: Path, value: Any) -> None:
 DEFAULT_SETTINGS: dict[str, Any] = {
     "max_file_size_mb": 64,
     "enable_heuristics": True,
-    "definition_update_url": "",
+    "definition_source": "Bundled LocalShield demo definitions",
     "app_update_url": "",
+    "theme": "Default",
     "last_scan": None,
 }
 

@@ -23,7 +23,139 @@ from localshield_av.models import ScanFinding, ScanSummary
 from localshield_av.quarantine import delete_record, list_records, quarantine_file, restore_record
 from localshield_av.scanner import LocalScanner
 from localshield_av.storage import app_data_dir, ensure_app_dirs, load_settings, save_settings
-from localshield_av.updater import update_definitions_from_url
+from localshield_av.updater import DEFINITION_SOURCE_NAMES, DEFINITION_SOURCES, update_definitions_from_source
+
+
+THEMES = {
+    "Default": {
+        "bg": "#f3f5f7",
+        "panel": "#ffffff",
+        "outline": "#c9ced6",
+        "accent": "#1f6aa5",
+        "text": "#17202a",
+        "muted": "#5d6d7e",
+    },
+    "Blue": {
+        "bg": "#eef6fb",
+        "panel": "#ffffff",
+        "outline": "#a8c4df",
+        "accent": "#155f9c",
+        "text": "#102033",
+        "muted": "#4d657d",
+    },
+    "Red": {
+        "bg": "#fff5f5",
+        "panel": "#ffffff",
+        "outline": "#e0b2b2",
+        "accent": "#a83232",
+        "text": "#2c1515",
+        "muted": "#7a5555",
+    },
+}
+
+
+class RoundedPanel(tk.Frame):
+    def __init__(
+        self,
+        master: tk.Widget,
+        colors: dict[str, str],
+        title: str = "",
+        padding: int = 10,
+        radius: int = 16,
+        height: int | None = None,
+    ) -> None:
+        super().__init__(master, bg=colors["bg"])
+        self.colors = colors
+        self.title = title
+        self.padding = padding
+        self.radius = radius
+        self.title_height = 24 if title else 0
+        self.canvas = tk.Canvas(
+            self,
+            bg=colors["bg"],
+            borderwidth=0,
+            highlightthickness=0,
+            height=height or 80,
+        )
+        self.canvas.pack(fill=tk.BOTH, expand=True)
+        self.inner = ttk.Frame(self.canvas, padding=padding, style="Panel.TFrame")
+        self.window = self.canvas.create_window(0, 0, anchor=tk.NW, window=self.inner)
+        self.canvas.bind("<Configure>", self._redraw)
+        self.inner.bind("<Configure>", self._sync_requested_size)
+
+    def set_colors(self, colors: dict[str, str]) -> None:
+        self.colors = colors
+        self.configure(bg=colors["bg"])
+        self.canvas.configure(bg=colors["bg"])
+        self._redraw()
+
+    def _sync_requested_size(self, _event: tk.Event | None = None) -> None:
+        width = max(180, self.inner.winfo_reqwidth() + (self.padding * 2))
+        height = max(70, self.inner.winfo_reqheight() + self.title_height + (self.padding * 2))
+        self.canvas.configure(width=width, height=height)
+        self._redraw()
+
+    def _redraw(self, _event: tk.Event | None = None) -> None:
+        width = max(2, self.canvas.winfo_width())
+        height = max(2, self.canvas.winfo_height())
+        self.canvas.delete("panel")
+        self._rounded_rect(
+            1,
+            1,
+            width - 2,
+            height - 2,
+            self.radius,
+            fill=self.colors["panel"],
+            outline=self.colors["outline"],
+            width=1,
+            tags="panel",
+        )
+        if self.title:
+            self.canvas.create_text(
+                self.padding + 2,
+                self.padding,
+                anchor=tk.NW,
+                text=self.title,
+                fill=self.colors["muted"],
+                font=("Segoe UI Semibold", 9),
+                tags="panel",
+            )
+        inner_y = self.padding + self.title_height
+        self.canvas.coords(self.window, self.padding, inner_y)
+        self.canvas.itemconfigure(
+            self.window,
+            width=max(20, width - (self.padding * 2)),
+            height=max(20, height - inner_y - self.padding),
+        )
+
+    def _rounded_rect(self, x1: int, y1: int, x2: int, y2: int, radius: int, **kwargs) -> None:
+        points = [
+            x1 + radius,
+            y1,
+            x2 - radius,
+            y1,
+            x2,
+            y1,
+            x2,
+            y1 + radius,
+            x2,
+            y2 - radius,
+            x2,
+            y2,
+            x2 - radius,
+            y2,
+            x1 + radius,
+            y2,
+            x1,
+            y2,
+            x1,
+            y2 - radius,
+            x1,
+            y1 + radius,
+            x1,
+            y1,
+        ]
+        self.canvas.create_polygon(points, smooth=True, **kwargs)
 
 
 class LocalShieldApp(tk.Tk):
@@ -39,8 +171,10 @@ class LocalShieldApp(tk.Tk):
         self.findings: list[ScanFinding] = []
         self.summary: ScanSummary | None = None
         self.scan_thread: threading.Thread | None = None
+        self.update_thread: threading.Thread | None = None
         self.cancel_event = threading.Event()
         self.events: queue.Queue[tuple[str, object]] = queue.Queue()
+        self.rounded_panels: list[RoundedPanel] = []
 
         self._create_vars()
         self._configure_style()
@@ -65,8 +199,14 @@ class LocalShieldApp(tk.Tk):
 
         self.max_size_var = tk.StringVar(value=str(self.settings.get("max_file_size_mb", 64)))
         self.heuristics_var = tk.BooleanVar(value=bool(self.settings.get("enable_heuristics", True)))
-        self.definition_url_var = tk.StringVar(value=str(self.settings.get("definition_update_url", "")))
+        saved_source = str(self.settings.get("definition_source", DEFINITION_SOURCE_NAMES[0]))
+        if saved_source not in DEFINITION_SOURCES:
+            saved_source = DEFINITION_SOURCE_NAMES[0]
+        self.definition_source_var = tk.StringVar(value=saved_source)
+        self.definition_source_note_var = tk.StringVar()
         self.app_url_var = tk.StringVar(value=str(self.settings.get("app_update_url", "")))
+        saved_theme = str(self.settings.get("theme", "Default"))
+        self.theme_var = tk.StringVar(value=saved_theme if saved_theme in THEMES else "Default")
 
     def _configure_style(self) -> None:
         self.style = ttk.Style(self)
@@ -75,25 +215,27 @@ class LocalShieldApp(tk.Tk):
         except tk.TclError:
             pass
 
-        bg = "#f3f5f7"
-        panel = "#ffffff"
-        accent = "#1f6aa5"
-        text = "#17202a"
-        muted = "#5d6d7e"
+        self.colors = THEMES.get(self.theme_var.get(), THEMES["Default"])
+        bg = self.colors["bg"]
+        panel = self.colors["panel"]
+        accent = self.colors["accent"]
+        text = self.colors["text"]
+        muted = self.colors["muted"]
 
         self.configure(bg=bg)
-        self.style.configure(".", font=("Segoe UI", 10), background=bg, foreground=text)
+        self.style.configure(".", font=("Segoe UI", 9), background=bg, foreground=text)
         self.style.configure("TFrame", background=bg)
-        self.style.configure("Panel.TFrame", background=panel, relief="solid", borderwidth=1)
+        self.style.configure("Panel.TFrame", background=panel, relief="flat", borderwidth=0)
         self.style.configure("TLabel", background=bg, foreground=text)
         self.style.configure("Panel.TLabel", background=panel, foreground=text)
-        self.style.configure("Muted.TLabel", foreground=muted)
-        self.style.configure("Title.TLabel", font=("Segoe UI Semibold", 18), background=bg, foreground=text)
-        self.style.configure("Metric.TLabel", font=("Segoe UI Semibold", 17), background=panel, foreground=text)
+        self.style.configure("Muted.TLabel", background=bg, foreground=muted)
+        self.style.configure("PanelMuted.TLabel", background=panel, foreground=muted)
+        self.style.configure("Title.TLabel", font=("Segoe UI Semibold", 16), background=bg, foreground=text)
+        self.style.configure("Metric.TLabel", font=("Segoe UI Semibold", 13), background=panel, foreground=text)
         self.style.configure("MetricCaption.TLabel", font=("Segoe UI", 9), background=panel, foreground=muted)
-        self.style.configure("TButton", padding=(10, 6))
+        self.style.configure("TButton", padding=(10, 6), background=panel)
         self.style.configure("Accent.TButton", background=accent, foreground="#ffffff")
-        self.style.configure("Treeview", rowheight=26, font=("Segoe UI", 9))
+        self.style.configure("Treeview", rowheight=24, font=("Segoe UI", 9))
         self.style.configure("Treeview.Heading", font=("Segoe UI Semibold", 9))
 
     def _build_layout(self) -> None:
@@ -143,19 +285,26 @@ class LocalShieldApp(tk.Tk):
         ttk.Button(actions, text="Custom Scan", command=lambda: self.notebook.select(self.scan_tab)).pack(side=tk.LEFT, padx=8)
         ttk.Button(actions, text="Open Data Folder", command=self._open_data_folder).pack(side=tk.LEFT, padx=8)
 
-        latest = ttk.LabelFrame(self.dashboard_tab, text="Current Findings", padding=10)
-        latest.pack(fill=tk.BOTH, expand=True)
-        self.dashboard_findings = self._create_results_tree(latest)
+        latest_panel = self._section(self.dashboard_tab, "Current Findings")
+        latest_panel.pack(fill=tk.BOTH, expand=True)
+        self.dashboard_findings = self._create_results_tree(latest_panel.inner)
 
     def _metric(self, parent: ttk.Frame, column: int, label: str, value: tk.StringVar) -> None:
-        frame = ttk.Frame(parent, padding=12, style="Panel.TFrame")
-        frame.grid(row=0, column=column, sticky="nsew", padx=6)
-        ttk.Label(frame, textvariable=value, style="Metric.TLabel").pack(anchor=tk.W)
-        ttk.Label(frame, text=label, style="MetricCaption.TLabel").pack(anchor=tk.W, pady=(4, 0))
+        panel = RoundedPanel(parent, self.colors, padding=12, radius=18, height=88)
+        self.rounded_panels.append(panel)
+        panel.grid(row=0, column=column, sticky="nsew", padx=6)
+        ttk.Label(panel.inner, textvariable=value, style="Metric.TLabel", wraplength=240).pack(anchor=tk.W, fill=tk.X)
+        ttk.Label(panel.inner, text=label, style="MetricCaption.TLabel").pack(anchor=tk.W, pady=(4, 0))
+
+    def _section(self, parent: ttk.Frame, title: str) -> RoundedPanel:
+        panel = RoundedPanel(parent, self.colors, title=title, padding=10, radius=16)
+        self.rounded_panels.append(panel)
+        return panel
 
     def _build_scan_tab(self) -> None:
-        path_frame = ttk.LabelFrame(self.scan_tab, text="Scan Target", padding=10)
-        path_frame.pack(fill=tk.X)
+        path_panel = self._section(self.scan_tab, "Scan Target")
+        path_panel.pack(fill=tk.X)
+        path_frame = path_panel.inner
         path_frame.columnconfigure(0, weight=1)
         ttk.Entry(path_frame, textvariable=self.scan_path_var).grid(row=0, column=0, sticky="ew", padx=(0, 8))
         ttk.Button(path_frame, text="Browse Folder", command=self._browse_scan_folder).grid(row=0, column=1, padx=4)
@@ -168,8 +317,9 @@ class LocalShieldApp(tk.Tk):
         ttk.Progressbar(progress, variable=self.progress_var, maximum=100).pack(fill=tk.X)
         ttk.Label(progress, textvariable=self.progress_text_var, style="Muted.TLabel").pack(anchor=tk.W, pady=(4, 0))
 
-        results_frame = ttk.LabelFrame(self.scan_tab, text="Scan Results", padding=10)
-        results_frame.pack(fill=tk.BOTH, expand=True)
+        results_panel = self._section(self.scan_tab, "Scan Results")
+        results_panel.pack(fill=tk.BOTH, expand=True)
+        results_frame = results_panel.inner
         self.results_tree = self._create_results_tree(results_frame)
 
         buttons = ttk.Frame(self.scan_tab)
@@ -204,8 +354,9 @@ class LocalShieldApp(tk.Tk):
         return tree
 
     def _build_quarantine_tab(self) -> None:
-        table_frame = ttk.LabelFrame(self.quarantine_tab, text="Quarantined Files", padding=10)
-        table_frame.pack(fill=tk.BOTH, expand=True)
+        table_panel = self._section(self.quarantine_tab, "Quarantined Files")
+        table_panel.pack(fill=tk.BOTH, expand=True)
+        table_frame = table_panel.inner
         container = ttk.Frame(table_frame)
         container.pack(fill=tk.BOTH, expand=True)
         columns = ("date", "severity", "threat", "file", "original")
@@ -233,28 +384,42 @@ class LocalShieldApp(tk.Tk):
         ttk.Button(buttons, text="Delete Selected", command=self._delete_selected_quarantine).pack(side=tk.LEFT, padx=8)
 
     def _build_updates_tab(self) -> None:
-        definitions_frame = ttk.LabelFrame(self.updates_tab, text="Virus Definitions", padding=10)
-        definitions_frame.pack(fill=tk.X)
+        definitions_panel = self._section(self.updates_tab, "Virus Definitions")
+        definitions_panel.pack(fill=tk.X)
+        definitions_frame = definitions_panel.inner
         ttk.Label(definitions_frame, textvariable=self.definitions_var).grid(row=0, column=0, sticky=tk.W, columnspan=4)
         ttk.Button(definitions_frame, text="Import Definitions", command=self._import_definitions).grid(row=1, column=0, sticky=tk.W, pady=(10, 0), padx=(0, 8))
         ttk.Button(definitions_frame, text="Export Active", command=self._export_definitions).grid(row=1, column=1, sticky=tk.W, pady=(10, 0), padx=8)
         ttk.Button(definitions_frame, text="Reset Bundled", command=self._reset_definitions).grid(row=1, column=2, sticky=tk.W, pady=(10, 0), padx=8)
 
-        url_frame = ttk.LabelFrame(self.updates_tab, text="Network Update Settings", padding=10)
-        url_frame.pack(fill=tk.X, pady=14)
+        url_panel = self._section(self.updates_tab, "Network Update Settings")
+        url_panel.pack(fill=tk.X, pady=14)
+        url_frame = url_panel.inner
         url_frame.columnconfigure(1, weight=1)
-        ttk.Label(url_frame, text="Definitions URL").grid(row=0, column=0, sticky=tk.W, padx=(0, 8), pady=4)
-        ttk.Entry(url_frame, textvariable=self.definition_url_var).grid(row=0, column=1, sticky="ew", pady=4)
+        ttk.Label(url_frame, text="Definitions Source").grid(row=0, column=0, sticky=tk.W, padx=(0, 8), pady=4)
+        source_combo = ttk.Combobox(
+            url_frame,
+            textvariable=self.definition_source_var,
+            values=DEFINITION_SOURCE_NAMES,
+            state="readonly",
+        )
+        source_combo.grid(row=0, column=1, sticky="ew", pady=4)
+        source_combo.bind("<<ComboboxSelected>>", self._update_source_note)
         ttk.Button(url_frame, text="Update Definitions", command=self._update_definitions_from_network).grid(row=0, column=2, padx=(8, 0), pady=4)
-        ttk.Label(url_frame, text="App Update URL").grid(row=1, column=0, sticky=tk.W, padx=(0, 8), pady=4)
-        ttk.Entry(url_frame, textvariable=self.app_url_var).grid(row=1, column=1, sticky="ew", pady=4)
-        ttk.Button(url_frame, text="Save Settings", command=self._save_settings).grid(row=1, column=2, padx=(8, 0), pady=4)
+        ttk.Label(url_frame, textvariable=self.definition_source_note_var, style="PanelMuted.TLabel", wraplength=780).grid(row=1, column=1, sticky="ew", pady=(0, 8))
+        ttk.Label(url_frame, text="App Update URL").grid(row=2, column=0, sticky=tk.W, padx=(0, 8), pady=4)
+        ttk.Entry(url_frame, textvariable=self.app_url_var).grid(row=2, column=1, sticky="ew", pady=4)
+        ttk.Button(url_frame, text="Save Settings", command=self._save_settings).grid(row=2, column=2, padx=(8, 0), pady=4)
+        self._update_source_note()
 
-        settings_frame = ttk.LabelFrame(self.updates_tab, text="Scanner Settings", padding=10)
-        settings_frame.pack(fill=tk.X)
+        settings_panel = self._section(self.updates_tab, "Scanner Settings")
+        settings_panel.pack(fill=tk.X)
+        settings_frame = settings_panel.inner
         ttk.Label(settings_frame, text="Maximum file size MB").grid(row=0, column=0, sticky=tk.W, padx=(0, 8), pady=4)
         ttk.Entry(settings_frame, textvariable=self.max_size_var, width=12).grid(row=0, column=1, sticky=tk.W, pady=4)
         ttk.Checkbutton(settings_frame, text="Enable heuristic review findings", variable=self.heuristics_var).grid(row=1, column=0, columnspan=3, sticky=tk.W, pady=4)
+        ttk.Label(settings_frame, text="Theme").grid(row=2, column=0, sticky=tk.W, padx=(0, 8), pady=4)
+        ttk.Combobox(settings_frame, textvariable=self.theme_var, values=tuple(THEMES), state="readonly", width=14).grid(row=2, column=1, sticky=tk.W, pady=4)
 
     def _build_logs_tab(self) -> None:
         buttons = ttk.Frame(self.logs_tab)
@@ -345,6 +510,12 @@ class LocalShieldApp(tk.Tk):
                     self._scan_complete(payload)  # type: ignore[arg-type]
                 elif event == "scan_error":
                     self._scan_error(payload)  # type: ignore[arg-type]
+                elif event == "definitions_complete":
+                    source, definitions = payload  # type: ignore[misc]
+                    self._definitions_update_complete(str(source), definitions)
+                elif event == "definitions_error":
+                    source, exc = payload  # type: ignore[misc]
+                    self._definitions_update_error(str(source), exc)
         except queue.Empty:
             pass
         self.after(100, self._poll_events)
@@ -403,6 +574,14 @@ class LocalShieldApp(tk.Tk):
             index = int(item.split(":")[-1])
             finding = self.findings[index]
             by_path.setdefault(finding.path, finding)
+
+        if not messagebox.askyesno(
+            "Confirm Quarantine",
+            f"Move {len(by_path)} selected file(s) to quarantine?\n\n"
+            "This is a manual action. LocalShield does not quarantine scan findings automatically.",
+        ):
+            append_log("Quarantine cancelled by user.")
+            return
 
         successes = 0
         failures: list[str] = []
@@ -529,26 +708,41 @@ class LocalShieldApp(tk.Tk):
             messagebox.showerror("Reset Failed", str(exc))
 
     def _update_definitions_from_network(self) -> None:
-        url = self.definition_url_var.get().strip()
-        if not url:
-            messagebox.showinfo("No URL", "Enter a definitions URL first.")
+        if self.update_thread and self.update_thread.is_alive():
+            messagebox.showinfo("Update Running", "A definitions update is already running.")
             return
-        if not (url.startswith("https://") or url.startswith("http://")):
-            messagebox.showerror("Invalid URL", "Definitions URL must start with http:// or https://.")
-            return
-        self._save_settings(show_message=False)
+        source = self.definition_source_var.get().strip()
         try:
-            self.status_var.set("Updating definitions")
-            self.update()
-            self.definitions = update_definitions_from_url(url)
-            append_log(f"Definitions updated from network; version={self.definitions.version}.")
-            self._refresh_all()
-            messagebox.showinfo("Definitions Updated", f"Active definitions: {self.definitions.version}")
-        except Exception as exc:
-            append_log(f"Network definitions update failed: {exc}")
-            messagebox.showerror("Update Failed", str(exc))
-        finally:
-            self.status_var.set("Ready")
+            self._save_settings(show_message=False)
+        except ValueError as exc:
+            messagebox.showerror("Invalid Settings", str(exc))
+            return
+        self.status_var.set("Updating definitions")
+        self.progress_text_var.set(f"Updating definitions from {source}...")
+
+        def run() -> None:
+            try:
+                definitions = update_definitions_from_source(source)
+                self.events.put(("definitions_complete", (source, definitions)))
+            except Exception as exc:
+                self.events.put(("definitions_error", (source, exc)))
+
+        self.update_thread = threading.Thread(target=run, daemon=True)
+        self.update_thread.start()
+
+    def _definitions_update_complete(self, source: str, definitions) -> None:
+        self.definitions = definitions
+        self.status_var.set("Ready")
+        self.progress_text_var.set(f"Definitions updated from {source}.")
+        append_log(f"Definitions updated from {source}; version={self.definitions.version}.")
+        self._refresh_all()
+        messagebox.showinfo("Definitions Updated", f"Active definitions: {self.definitions.version}")
+
+    def _definitions_update_error(self, source: str, exc: Exception) -> None:
+        self.status_var.set("Ready")
+        self.progress_text_var.set("Definitions update failed.")
+        append_log(f"Definitions update failed from {source}: {exc}")
+        messagebox.showerror("Update Failed", str(exc))
 
     def _save_settings(self, show_message: bool = True) -> None:
         try:
@@ -560,13 +754,24 @@ class LocalShieldApp(tk.Tk):
 
         self.settings["max_file_size_mb"] = max_size
         self.settings["enable_heuristics"] = bool(self.heuristics_var.get())
-        self.settings["definition_update_url"] = self.definition_url_var.get().strip()
+        self.settings["definition_source"] = self.definition_source_var.get().strip()
         self.settings["app_update_url"] = self.app_url_var.get().strip()
+        self.settings["theme"] = self.theme_var.get()
         save_settings(self.settings)
+        self._apply_theme()
         if show_message:
             append_log("Settings saved.")
             self._refresh_all()
             messagebox.showinfo("Settings Saved", "Scanner and update settings were saved.")
+
+    def _apply_theme(self) -> None:
+        self._configure_style()
+        for panel in self.rounded_panels:
+            panel.set_colors(self.colors)
+
+    def _update_source_note(self, _event: tk.Event | None = None) -> None:
+        source = DEFINITION_SOURCES.get(self.definition_source_var.get(), {})
+        self.definition_source_note_var.set(source.get("note", ""))
 
     def _refresh_logs(self) -> None:
         self.log_text.configure(state=tk.NORMAL)
@@ -583,7 +788,7 @@ class LocalShieldApp(tk.Tk):
     def _refresh_all(self) -> None:
         self.version_var.set(__version__)
         self.definitions_var.set(
-            f"{self.definitions.version} ({self.definitions.signature_count} signatures)"
+            f"{self.definitions.version} - {self.definitions.signature_count} sigs"
         )
         self.last_scan_var.set(str(self.settings.get("last_scan") or "Never"))
         self._populate_results()

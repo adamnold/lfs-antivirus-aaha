@@ -1,2 +1,10 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+
+# Keep source and docs consistent across Windows/macOS/Linux.
+*.py text eol=lf
+*.md text eol=lf
+*.json text eol=lf
+*.ps1 text eol=lf
+*.bat text eol=crlf
+.gitattributes text eol=lf

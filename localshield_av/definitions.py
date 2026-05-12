@@ -49,14 +49,26 @@ def load_definitions() -> Definitions:
 
     hash_signatures: list[Signature] = []
     for item in raw.get("hashes", []):
-        if isinstance(item, dict) and item.get("sha256"):
+        if not isinstance(item, dict):
+            continue
+        algorithm = ""
+        digest = ""
+        for candidate in ("sha256", "sha1", "md5"):
+            if item.get(candidate):
+                algorithm = candidate
+                digest = str(item[candidate]).lower()
+                break
+        if not digest and item.get("hash") and item.get("algorithm"):
+            algorithm = str(item["algorithm"]).lower()
+            digest = str(item["hash"]).lower()
+        if algorithm in {"sha256", "sha1", "md5"} and digest:
             hash_signatures.append(
                 Signature(
-                    id=str(item.get("id", item["sha256"][:12])),
+                    id=str(item.get("id", digest[:12])),
                     name=str(item.get("name", "Known Malware Hash")),
                     severity=str(item.get("severity", "high")),
-                    kind="sha256",
-                    value=str(item["sha256"]).lower(),
+                    kind=algorithm,
+                    value=digest,
                     description=str(item.get("description", "")),
                 )
             )
