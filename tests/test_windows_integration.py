@@ -66,10 +66,19 @@ class WindowsIntegrationTests(unittest.TestCase):
             )
             worker.start()
             deadline = time.monotonic() + 15
-            while not pid_file.exists() and time.monotonic() < deadline:
+            child_pid: int | None = None
+            while child_pid is None and time.monotonic() < deadline:
+                try:
+                    content = pid_file.read_text(encoding="ascii").strip()
+                    if content.isdecimal():
+                        child_pid = int(content)
+                except OSError:
+                    pass
                 time.sleep(0.05)
-            self.assertTrue(pid_file.exists(), "The child process did not report its PID.")
-            child_pid = int(pid_file.read_text(encoding="ascii"))
+            if child_pid is None:
+                cancellation.set()
+                worker.join(timeout=15)
+                self.fail("The child process did not report a complete PID.")
 
             try:
                 cancellation.set()
