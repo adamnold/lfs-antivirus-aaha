@@ -53,16 +53,16 @@ def app_data_dir() -> Path:
     return canonical
 
 
-def repo_root() -> Path:
-    return Path(__file__).resolve().parents[1]
+def clamav_database_dir() -> Path:
+    return app_data_dir() / "clamav-database"
 
 
-def bundled_definitions_path() -> Path:
-    return repo_root() / "definitions" / "signatures.json"
+def clamav_database_backup_dir() -> Path:
+    return app_data_dir() / "clamav-database.backup"
 
 
-def user_definitions_path() -> Path:
-    return app_data_dir() / "definitions" / "signatures.json"
+def freshclam_config_path() -> Path:
+    return app_data_dir() / "freshclam.conf"
 
 
 def quarantine_dir() -> Path:
@@ -80,7 +80,7 @@ def settings_path() -> Path:
 def ensure_app_dirs() -> None:
     for path in (
         app_data_dir(),
-        user_definitions_path().parent,
+        clamav_database_dir(),
         quarantine_dir(),
         logs_dir(),
     ):
@@ -91,7 +91,7 @@ def read_json(path: Path, default: Any) -> Any:
     try:
         with path.open("r", encoding="utf-8") as handle:
             return json.load(handle)
-    except (FileNotFoundError, json.JSONDecodeError):
+    except (OSError, UnicodeError, json.JSONDecodeError):
         return default
 
 
@@ -104,12 +104,11 @@ def write_json(path: Path, value: Any) -> None:
 
 
 DEFAULT_SETTINGS: dict[str, Any] = {
-    "max_file_size_mb": 64,
-    "enable_heuristics": True,
-    "definition_source": "Bundled Local-First Antivirus demo definitions",
-    "app_update_url": "",
+    "clamscan_path": "",
+    "freshclam_path": "",
     "theme": "Default",
-    "last_scan": None,
+    "last_successful_scan": None,
+    "last_attempt": None,
 }
 
 
@@ -119,6 +118,8 @@ def load_settings() -> dict[str, Any]:
     settings = dict(DEFAULT_SETTINGS)
     if isinstance(loaded, dict):
         settings.update(loaded)
+        if not settings.get("last_successful_scan") and loaded.get("last_scan"):
+            settings["last_successful_scan"] = loaded.get("last_scan")
     return settings
 
 

@@ -12,16 +12,6 @@ def utc_now_iso() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
 
-@dataclass(frozen=True)
-class Signature:
-    id: str
-    name: str
-    severity: str
-    kind: str
-    value: str
-    description: str = ""
-
-
 @dataclass
 class ScanFinding:
     path: str
@@ -61,6 +51,9 @@ class ScanSummary:
     findings: list[ScanFinding] = field(default_factory=list)
     cancelled: bool = False
     errors: list[str] = field(default_factory=list)
+    engine_version: str = ""
+    database_version: str = ""
+    exit_code: int | None = None
 
     @property
     def threats_found(self) -> int:
@@ -91,10 +84,13 @@ class QuarantineRecord:
 
     @classmethod
     def from_dict(cls, value: dict[str, Any]) -> "QuarantineRecord":
+        finding = value.get("finding")
+        if not isinstance(finding, dict):
+            raise ValueError("Quarantine record finding must be an object.")
         return cls(
             id=str(value["id"]),
             original_path=str(value["original_path"]),
             stored_path=str(value["stored_path"]),
             quarantined_at=str(value["quarantined_at"]),
-            finding=ScanFinding.from_dict(value["finding"]),
+            finding=ScanFinding.from_dict(finding),
         )

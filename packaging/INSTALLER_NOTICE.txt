@@ -1,0 +1,11 @@
+LOCAL-FIRST ANTIVIRUS v0.3 BETA 1
+
+This is an unsigned, early on-demand scanner interface from Adam And His Agents (AAHA). Windows may display an Unknown Publisher or SmartScreen warning.
+
+The installer is per-user and does not require administrator privileges. It installs the AAHA application only. It does not bundle ClamAV, virus definitions, a service, a background scanner, or Microsoft Defender changes.
+
+Before scanning, separately obtain a supported ClamAV Windows x64 installation from the official ClamAV project. The beta was release-tested with ClamAV 1.5.3. Select and validate that installation's clamscan.exe and freshclam.exe inside the application.
+
+Do not disable Microsoft Defender or another supported security product. This beta provides user-triggered, on-demand scans only and is not a replacement for endpoint protection.
+
+Uninstall removes the installed AAHA program and shortcuts. Local settings, logs, ClamAV definitions, and preserved legacy quarantine state remain under the documented application-data location so uninstall cannot silently destroy user state.

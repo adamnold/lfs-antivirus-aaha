@@ -7,8 +7,10 @@ from unittest.mock import patch
 from lfs_antivirus_aaha.storage import (
     app_data_dir,
     canonical_app_data_dir,
+    clamav_database_dir,
     ensure_app_dirs,
     legacy_app_data_dir,
+    load_settings,
 )
 
 
@@ -39,6 +41,17 @@ class StorageTests(unittest.TestCase):
             (Path(temp) / "LocalShieldAV").mkdir()
 
             self.assertEqual(app_data_dir(), canonical)
+
+    def test_current_defaults_create_clamav_database_without_obsolete_controls(self) -> None:
+        with tempfile.TemporaryDirectory() as temp, patch.dict(os.environ, {"LOCALAPPDATA": temp}):
+            ensure_app_dirs()
+            settings = load_settings()
+
+            self.assertTrue(clamav_database_dir().is_dir())
+            self.assertIn("clamscan_path", settings)
+            self.assertIn("freshclam_path", settings)
+            self.assertNotIn("app_update_url", settings)
+            self.assertNotIn("definition_source", settings)
 
 
 if __name__ == "__main__":

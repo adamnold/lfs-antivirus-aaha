@@ -1,5 +1,7 @@
 # Notices
 
+Last Updated: 2026-07-29
+
 ## Project identity
 
 **Local-First Antivirus** is part of the **AAHA Local-First Series** from
@@ -8,16 +10,18 @@
 Copyright 2026 Adam And His Agents (AAHA). The project source is licensed under
 the MIT License in `LICENSE`.
 
-## Third-party names and formats
+## External ClamAV interoperability
 
-The source references ClamAV database formats and public database locations for
-interoperability. ClamAV is a separate project. Local-First Antivirus is not
-ClamAV, does not embed the ClamAV engine, and is not affiliated with or endorsed
-by Cisco Talos or the ClamAV project.
+Local-First Antivirus can invoke a separately installed ClamAV `clamscan` and
+`freshclam` command-line installation selected by the user. ClamAV is a separate
+project, is not bundled or linked into this repository, and retains its own
+license, copyright, security guidance, distribution terms, and trademarks.
 
-The bundled definitions include only the published SHA-256 hash of the EICAR
-anti-malware test file and an original harmless AAHA text marker. The EICAR test
-file itself is not distributed by this repository.
+Local-First Antivirus is not ClamAV and is not affiliated with or endorsed by
+Cisco Talos, Cisco Systems, or the ClamAV project. ClamAV's name is used only to
+describe optional command-line interoperability.
 
-Python and Tk are separate open-source projects and retain their respective
-licenses and trademarks.
+The packaged Windows beta contains the Python runtime and Tcl/Tk UI components.
+Their exact license texts are installed with the application under `licenses/`.
+PyInstaller and Inno Setup are build tools and are not runtime endorsements.
+See `packaging/THIRD_PARTY_NOTICES.md` for the packaged-runtime boundary.

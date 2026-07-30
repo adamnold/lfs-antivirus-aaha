@@ -1,0 +1,95 @@
+name: Release candidate
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows-release-candidate:
+    name: windows-release-candidate
+    runs-on: windows-latest
+    timeout-minutes: 90
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
+      PIP_DISABLE_PIP_VERSION_CHECK: "1"
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Set up Python 3.13.14
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.13.14"
+
+      - name: Run source and Windows integration tests
+        env:
+          LOCALAPPDATA: ${{ runner.temp }}\lfs-antivirus-aaha-tests
+        run: |
+          python -m unittest discover -s tests -v
+          python -m compileall -q lfs_antivirus_aaha packaging tests
+
+      - name: Create exact build environment
+        shell: pwsh
+        run: |
+          python -m venv "${{ runner.temp }}\build-venv"
+          & "${{ runner.temp }}\build-venv\Scripts\python.exe" -m pip install --no-deps -r packaging/requirements-build.txt
+          & "${{ runner.temp }}\build-venv\Scripts\python.exe" -m pip check
+
+      - name: Audit exact build dependencies
+        shell: pwsh
+        run: |
+          python -m venv "${{ runner.temp }}\audit-venv"
+          & "${{ runner.temp }}\audit-venv\Scripts\python.exe" -m pip install pip-audit==2.10.1
+          & "${{ runner.temp }}\audit-venv\Scripts\python.exe" -m pip_audit --strict -r packaging/requirements-build.txt
+
+      - name: Install verified Inno Setup 7.0.2
+        shell: pwsh
+        run: |
+          $url = "https://github.com/jrsoftware/issrc/releases/download/is-7_0_2/innosetup-7.0.2-x64.exe"
+          $path = Join-Path "${{ runner.temp }}" "innosetup-7.0.2-x64.exe"
+          Invoke-WebRequest -Uri $url -OutFile $path
+          $actual = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
+          $expected = "5ad54ca3def786f8f4212552e54cc6d8d61329e2d24a1cfee0571d42c2684ff1"
+          if ($actual -ne $expected) { throw "Inno Setup SHA-256 mismatch." }
+          $signature = Get-AuthenticodeSignature -LiteralPath $path
+          if ($signature.Status -ne "Valid" -or $signature.SignerCertificate.Subject -notmatch "Pyrsys") {
+            throw "Inno Setup publisher verification failed."
+          }
+          $process = Start-Process -FilePath $path -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART" -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw "Inno Setup installation failed with exit code $($process.ExitCode)." }
+
+      - name: Build installer and checksums
+        shell: pwsh
+        run: |
+          ./packaging/build-windows.ps1 -Python "${{ runner.temp }}\build-venv\Scripts\python.exe"
+
+      - name: Verify install upgrade UI remove and state preservation
+        shell: pwsh
+        run: ./packaging/verify-windows-package.ps1
+
+      - name: Verify live ClamAV update and clean scan
+        shell: pwsh
+        run: ./packaging/verify-live-clamav.ps1 -Python python
+
+      - name: Confirm tracked source was not mutated
+        shell: pwsh
+        run: git diff --exit-code
+
+      - name: Upload release files
+        uses: actions/upload-artifact@v6
+        with:
+          name: lfs-antivirus-aaha-v0.3.0-beta.1-windows-x64
+          path: dist/release/
+          if-no-files-found: error
+
+      - name: Upload verification evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: lfs-antivirus-aaha-v0.3.0-beta.1-evidence
+          path: dist/evidence/
+          if-no-files-found: warn
+          retention-days: 30

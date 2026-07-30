@@ -1,170 +1,166 @@
-"""Read-only scanning engine for Local-First Antivirus."""
+"""Read-only on-demand scans through a separately installed ClamAV engine."""
 
 from __future__ import annotations
 
-import hashlib
-import os
 import threading
 from pathlib import Path
-from typing import Callable, Iterable
 
-from .definitions import Definitions
+from .engine import resolve_local_path, run_command
 from .models import ScanFinding, ScanSummary, utc_now_iso
+from .storage import app_data_dir
 
 
-ProgressCallback = Callable[[str, int, int], None]
+SUMMARY_INTEGER_KEYS = {
+    "Scanned files": "files_scanned",
+    "Infected files": "infected_files",
+}
 
 
-class LocalScanner:
-    def __init__(
-        self,
-        definitions: Definitions,
-        max_file_size_mb: int = 64,
-        enable_heuristics: bool = True,
-    ) -> None:
-        self.definitions = definitions
-        self.max_file_size = max(1, int(max_file_size_mb)) * 1024 * 1024
-        self.enable_heuristics = enable_heuristics
-        self._hash_lookup: dict[str, dict[str, object]] = {}
-        for signature in definitions.hash_signatures:
-            self._hash_lookup.setdefault(signature.kind, {})[signature.value] = signature
-        self._patterns = [signature for signature in definitions.content_signatures if signature.value]
-        self._max_pattern_length = max((len(sig.value.encode("utf-8")) for sig in self._patterns), default=0)
+class ClamAvScanner:
+    def __init__(self, clamscan_path: Path, database_dir: Path, engine_version: str) -> None:
+        self.clamscan_path = Path(clamscan_path)
+        self.database_dir = Path(database_dir)
+        self.engine_version = engine_version
 
     def scan_path(
         self,
         root: Path,
+        *,
         cancel_event: threading.Event | None = None,
-        progress: ProgressCallback | None = None,
     ) -> ScanSummary:
+        target = validate_scan_target(root)
+        if not database_is_ready(self.database_dir):
+            raise RuntimeError("ClamAV definitions are not ready. Run Update Definitions first.")
+
+        argv = [
+            str(self.clamscan_path),
+            f"--database={self.database_dir}",
+            "--official-db-only=yes",
+            "--infected",
+            "--scan-archive=no",
+            "--follow-dir-symlinks=0",
+            "--follow-file-symlinks=0",
+            "--cross-fs=no",
+            "--stdout",
+        ]
+        if target.is_dir():
+            argv.append("--recursive=yes")
+        argv.append(str(target))
+
         started_at = utc_now_iso()
-        summary = ScanSummary(started_at=started_at, completed_at=started_at, root=str(root))
-        root = root.expanduser()
-        files = list(self._iter_files(root, summary))
-        total = len(files)
+        result = run_command(argv, cancel_event=cancel_event)
+        return parse_clamscan_output(
+            result.output,
+            root=target,
+            started_at=started_at,
+            exit_code=result.returncode,
+            cancelled=result.cancelled,
+            timed_out=result.timed_out,
+            engine_version=self.engine_version,
+        )
 
-        for index, path in enumerate(files, start=1):
-            if cancel_event and cancel_event.is_set():
-                summary.cancelled = True
-                break
-            if progress:
-                progress(str(path), index, total)
+
+def validate_scan_target(value: Path | str) -> Path:
+    raw = str(value)
+    if not raw.strip():
+        raise ValueError("Choose a local file or directory to scan.")
+    if raw.startswith("\\\\") or raw.startswith("//"):
+        raise ValueError("UNC and network scan targets are not supported in this beta.")
+    path = Path(value).expanduser()
+    resolved = resolve_local_path(path, "the scan target")
+    if not (resolved.is_file() or resolved.is_dir()):
+        raise ValueError("The scan target must be a local file or directory.")
+    try:
+        resolved.relative_to(app_data_dir().resolve())
+    except ValueError:
+        pass
+    else:
+        raise ValueError("The application-data directory cannot be selected as a scan target.")
+    return resolved
+
+
+def database_is_ready(path: Path) -> bool:
+    if not path.is_dir():
+        return False
+    names = {item.name.casefold() for item in path.iterdir() if item.is_file()}
+    return any(name in names for name in ("main.cvd", "main.cld")) and any(
+        name in names for name in ("daily.cvd", "daily.cld")
+    )
+
+
+def parse_clamscan_output(
+    output: str,
+    *,
+    root: Path,
+    started_at: str,
+    exit_code: int,
+    cancelled: bool = False,
+    timed_out: bool = False,
+    engine_version: str = "",
+) -> ScanSummary:
+    summary = ScanSummary(
+        started_at=started_at,
+        completed_at=utc_now_iso(),
+        root=str(root),
+        cancelled=cancelled,
+        engine_version=engine_version,
+        exit_code=exit_code,
+    )
+    parsed_values: dict[str, int] = {}
+
+    for raw_line in output.splitlines():
+        line = raw_line.strip()
+        finding_path, separator, finding_result = line.partition(": ")
+        if separator and finding_result.endswith(" FOUND"):
+            signature = finding_result[: -len(" FOUND")]
+            size = 0
             try:
-                findings = self.scan_file(path)
-                summary.findings.extend(findings)
-                summary.files_scanned += 1
-                summary.bytes_scanned += path.stat().st_size
-            except PermissionError:
-                summary.files_skipped += 1
-                summary.errors.append(f"Permission denied: {path}")
-            except OSError as exc:
-                summary.files_skipped += 1
-                summary.errors.append(f"{path}: {exc}")
-
-        summary.completed_at = utc_now_iso()
-        return summary
-
-    def scan_file(self, path: Path) -> list[ScanFinding]:
-        stat = path.stat()
-        if stat.st_size > self.max_file_size:
-            return []
-
-        hashers = {
-            "md5": hashlib.md5(usedforsecurity=False),
-            "sha1": hashlib.sha1(usedforsecurity=False),
-            "sha256": hashlib.sha256(),
-        }
-        pattern_matches: dict[str, ScanFinding] = {}
-        tail = b""
-        encoded_patterns = [(sig, sig.value.encode("utf-8", errors="ignore")) for sig in self._patterns]
-
-        with path.open("rb") as handle:
-            while True:
-                chunk = handle.read(1024 * 1024)
-                if not chunk:
-                    break
-                for hasher in hashers.values():
-                    hasher.update(chunk)
-                if encoded_patterns:
-                    searchable = tail + chunk
-                    for signature, pattern in encoded_patterns:
-                        if pattern and pattern in searchable and signature.id not in pattern_matches:
-                            pattern_matches[signature.id] = ScanFinding(
-                                path=str(path),
-                                threat_name=signature.name,
-                                severity=signature.severity,
-                                reason=f"Content signature match: {signature.id}",
-                                sha256="",
-                                size=stat.st_size,
-                            )
-                    if self._max_pattern_length > 1:
-                        tail = searchable[-(self._max_pattern_length - 1) :]
-
-        file_hashes = {algorithm: hasher.hexdigest() for algorithm, hasher in hashers.items()}
-        sha256 = file_hashes["sha256"]
-        findings = list(pattern_matches.values())
-        for finding in findings:
-            finding.sha256 = sha256
-
-        for algorithm, digest in file_hashes.items():
-            signature = self._hash_lookup.get(algorithm, {}).get(digest)
-            if signature:
-                findings.append(
-                    ScanFinding(
-                        path=str(path),
-                        threat_name=signature.name,
-                        severity=signature.severity,
-                        reason=f"Known {algorithm.upper()} signature match: {signature.id}",
-                        sha256=sha256,
-                        size=stat.st_size,
-                    )
-                )
-
-        if self.enable_heuristics:
-            heuristic = self._heuristic_finding(path, sha256, stat.st_size)
-            if heuristic:
-                findings.append(heuristic)
-
-        return findings
-
-    def _iter_files(self, root: Path, summary: ScanSummary) -> Iterable[Path]:
-        if root.is_file():
-            yield root
-            return
-        if not root.exists():
-            summary.errors.append(f"Path does not exist: {root}")
-            return
-
-        for current_root, dirs, files in os.walk(root):
-            dirs[:] = [name for name in dirs if name not in {"$RECYCLE.BIN", "System Volume Information"}]
-            for name in files:
-                yield Path(current_root) / name
-
-    def _heuristic_finding(self, path: Path, sha256: str, size: int) -> ScanFinding | None:
-        suffixes = [suffix.lower() for suffix in path.suffixes]
-        if len(suffixes) >= 2:
-            final = suffixes[-1]
-            previous = suffixes[-2]
-            document_exts = {".pdf", ".doc", ".docx", ".xls", ".xlsx", ".jpg", ".jpeg", ".png", ".txt"}
-            executable_exts = {".exe", ".scr", ".cmd", ".bat", ".ps1", ".vbs", ".js", ".msi"}
-            if previous in document_exts and final in executable_exts:
-                return ScanFinding(
-                    path=str(path),
-                    threat_name="Suspicious Double Extension",
-                    severity="medium",
-                    reason=f"File name ends with '{previous}{final}', a common disguise pattern.",
-                    sha256=sha256,
+                size = Path(finding_path).stat().st_size
+            except OSError:
+                pass
+            summary.findings.append(
+                ScanFinding(
+                    path=finding_path,
+                    threat_name=signature,
+                    severity="not provided",
+                    reason="Detected by the external ClamAV engine.",
+                    sha256="",
                     size=size,
                 )
-
-        if path.suffix.lower() in self.definitions.risky_extensions:
-            return ScanFinding(
-                path=str(path),
-                threat_name="Risky Script or Executable Type",
-                severity="low",
-                reason=f"File extension '{path.suffix.lower()}' is configured for review.",
-                sha256=sha256,
-                size=size,
             )
+            continue
 
-        return None
+        if separator and finding_result.endswith(" ERROR"):
+            summary.errors.append(f"{finding_path}: {finding_result[: -len(' ERROR')]}")
+            continue
+
+        if line.startswith(("ERROR:", "WARNING:", "LibClamAV Error:", "LibClamAV Warning:")):
+            summary.errors.append(line[:500])
+            continue
+
+        if ":" in line:
+            key, raw_value = (item.strip() for item in line.split(":", 1))
+            if key in SUMMARY_INTEGER_KEYS:
+                try:
+                    parsed_values[key] = int(raw_value.replace(",", ""))
+                except ValueError:
+                    summary.errors.append(f"Unrecognized ClamAV summary value: {line}")
+
+    summary.files_scanned = parsed_values.get("Scanned files", 0)
+    if timed_out:
+        summary.errors.append("The ClamAV scan timed out.")
+    if not cancelled:
+        if "Scanned files" not in parsed_values or "Infected files" not in parsed_values:
+            summary.errors.append("ClamAV did not return a complete parseable scan summary.")
+        infected_files = parsed_values.get("Infected files")
+        if infected_files is not None and infected_files != len(summary.findings):
+            summary.errors.append(
+                "ClamAV's infected-file count does not match its parseable findings."
+            )
+        if exit_code not in (0, 1):
+            summary.errors.append(f"ClamAV ended with error exit code {exit_code}.")
+        if exit_code == 0 and (infected_files or summary.findings):
+            summary.errors.append("ClamAV returned a clean exit code with infection output.")
+        if exit_code == 1 and not summary.findings:
+            summary.errors.append("ClamAV reported an infection but returned no parseable finding.")
+    return summary
