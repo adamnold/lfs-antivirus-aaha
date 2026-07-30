@@ -31,7 +31,9 @@ are removed. Production scanning no longer uses AAHA demo/hash/heuristic rules.
 1. The user selects absolute `clamscan.exe` and `freshclam.exe` paths.
 2. `engine.validate_installation()` requires exact filenames, normal files from
    one resolved local directory without mapped/UNC or link/reparse ancestry, and
-   ClamAV version responses from both executables.
+   a ClamScan version response plus FreshClam's versioned help identity. The help
+   route is required because FreshClam parses its configuration before handling
+   `--version`, while `--help` exits before configuration parsing.
 3. Every invocation passes a Python argument list to `subprocess.Popen` with
    `shell=False`, a disabled stdin, merged output, a hidden Windows console, and
    no `PATH` lookup.

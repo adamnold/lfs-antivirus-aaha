@@ -12,8 +12,9 @@ minor version rather than patch-only releases.
 
 - Replaced the demonstration Python hash/heuristic scanner with a read-only
   adapter for user-selected `clamscan.exe` and `freshclam.exe` paths.
-- Added exact-path, same-directory, executable-name, and version-response
-  validation without `PATH` lookup or shell invocation.
+- Added exact-path, same-directory, executable-name, and engine-identity
+  validation without `PATH` lookup or shell invocation, including FreshClam's
+  config-independent versioned help banner.
 - Replaced direct CVD downloading/parsing with user-triggered FreshClam updates
   into an AAHA-owned staged database directory.
 - Added candidate database validation, transaction-marked activation,

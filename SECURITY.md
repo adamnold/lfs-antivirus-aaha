@@ -34,9 +34,10 @@ Do not send live malware.
 
 - ClamAV is separately installed and retains its own license and trust boundary.
 - The application accepts only absolute files named `clamscan.exe` and
-  `freshclam.exe` from the same directory, validates version responses, and
-  invokes fixed argument lists with `shell=False`. It never searches `PATH` and
-  rejects mapped/UNC drives plus link, junction, or reparse-point ancestry.
+  `freshclam.exe` from the same directory, validates ClamScan's version plus
+  FreshClam's versioned help identity, and invokes fixed argument lists with
+  `shell=False`. It never searches `PATH` and rejects mapped/UNC drives plus
+  link, junction, or reparse-point ancestry.
 - Engine validation confirms identity signals, not publisher signature or
   provenance. Users must obtain ClamAV from a trusted official distribution.
   The release workflow separately verifies the official ClamAV 1.5.3 GitHub

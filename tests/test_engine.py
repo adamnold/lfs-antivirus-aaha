@@ -28,13 +28,17 @@ class EngineTests(unittest.TestCase):
                 "lfs_antivirus_aaha.engine.run_command",
                 side_effect=(
                     ProcessResult(0, "ClamAV 1.5.3/27800\n"),
-                    ProcessResult(0, "ClamAV 1.5.3/27800\n"),
+                    ProcessResult(
+                        0,
+                        "\nClam AntiVirus: Database Updater 1.5.3\n",
+                    ),
                 ),
             ) as mocked:
                 installation = validate_installation(clamscan, freshclam)
 
             self.assertEqual(installation.clamscan_path, clamscan.resolve())
             self.assertEqual(installation.freshclam_path, freshclam.resolve())
+            self.assertIn("Database Updater 1.5.3", installation.freshclam_version)
             self.assertEqual(
                 mocked.call_args_list,
                 [
@@ -44,7 +48,7 @@ class EngineTests(unittest.TestCase):
                         timeout=15,
                     ),
                     call(
-                        [str(freshclam.resolve()), "--version"],
+                        [str(freshclam.resolve()), "--help"],
                         cancel_event=None,
                         timeout=15,
                     ),
@@ -64,6 +68,22 @@ class EngineTests(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError, "cancelled"):
                     validate_installation(clamscan, freshclam)
             self.assertEqual(mocked.call_count, 1)
+
+    def test_freshclam_identity_does_not_require_a_default_config(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            clamscan = Path(temp) / "clamscan.exe"
+            freshclam = Path(temp) / "freshclam.exe"
+            clamscan.write_bytes(b"one")
+            freshclam.write_bytes(b"two")
+            with patch(
+                "lfs_antivirus_aaha.engine.run_command",
+                side_effect=(
+                    ProcessResult(0, "ClamAV 1.5.3\n"),
+                    ProcessResult(0, "generic command help\n"),
+                ),
+            ):
+                with self.assertRaisesRegex(RuntimeError, "unexpected identity"):
+                    validate_installation(clamscan, freshclam)
 
     def test_cancellation_between_version_checks_does_not_start_second_executable(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

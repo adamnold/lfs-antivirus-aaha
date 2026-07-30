@@ -125,15 +125,18 @@ def validate_installation(
         raise RuntimeError("clamscan.exe did not return a valid version response.")
     scan_text = _version_line(scan_version.output, "clamscan.exe")
 
+    # FreshClam parses freshclam.conf before handling --version, but handles
+    # --help first. A clean official Windows installation has no active config
+    # yet, so validate its versioned identity banner through --help.
     fresh_version = run_command(
-        [str(freshclam), "--version"], cancel_event=cancel_event, timeout=15
+        [str(freshclam), "--help"], cancel_event=cancel_event, timeout=15
     )
     if fresh_version.cancelled or (cancel_event and cancel_event.is_set()):
         raise RuntimeError("ClamAV validation was cancelled.")
     if fresh_version.returncode != 0 or fresh_version.timed_out:
-        raise RuntimeError("freshclam.exe did not return a valid version response.")
+        raise RuntimeError("freshclam.exe did not return a valid identity response.")
 
-    fresh_text = _version_line(fresh_version.output, "freshclam.exe")
+    fresh_text = _freshclam_identity_line(fresh_version.output)
     return ClamAvInstallation(
         clamscan_path=clamscan,
         freshclam_path=freshclam,
@@ -183,6 +186,20 @@ def _version_line(output: str, executable_name: str) -> str:
     line = next((item.strip() for item in output.splitlines() if item.strip()), "")
     if "clamav" not in line.casefold():
         raise RuntimeError(f"{executable_name} returned an unexpected version response.")
+    return line[:240]
+
+
+def _freshclam_identity_line(output: str) -> str:
+    line = next(
+        (
+            item.strip()
+            for item in output.splitlines()
+            if "clam antivirus: database updater" in item.casefold()
+        ),
+        "",
+    )
+    if not line:
+        raise RuntimeError("freshclam.exe returned an unexpected identity response.")
     return line[:240]
 
 
