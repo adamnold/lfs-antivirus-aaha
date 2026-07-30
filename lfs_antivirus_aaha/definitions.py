@@ -1,3 +1,5 @@
+"""Load, validate, install, and export Local-First Antivirus definitions."""
+
 from __future__ import annotations
 
 import shutil

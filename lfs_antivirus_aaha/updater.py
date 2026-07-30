@@ -1,3 +1,5 @@
+"""Definition-source adapters for Local-First Antivirus."""
+
 from __future__ import annotations
 
 import io
@@ -15,21 +17,22 @@ from .storage import write_json
 
 MAX_DOWNLOAD_BYTES = 260 * 1024 * 1024
 MAX_IMPORTED_HASH_SIGNATURES = 250_000
+HTTP_USER_AGENT = "AAHA-Local-First-Antivirus/0.2.0"
 
 DEFINITION_SOURCES: dict[str, dict[str, str]] = {
-    "Bundled LocalShield demo definitions": {
+    "Bundled Local-First Antivirus demo definitions": {
         "kind": "bundled",
         "note": "Offline demo set included with the app.",
     },
     "ClamAV Daily CVD (official)": {
         "kind": "clamav_cvd",
         "url": "https://database.clamav.net/daily.cvd",
-        "note": "Official ClamAV daily database; LocalShield imports file-hash signatures it can use.",
+        "note": "Official ClamAV daily database; Local-First Antivirus imports file-hash signatures it can use.",
     },
     "ClamAV Main CVD (official)": {
         "kind": "clamav_cvd",
         "url": "https://database.clamav.net/main.cvd",
-        "note": "Official ClamAV main database; LocalShield imports file-hash signatures it can use.",
+        "note": "Official ClamAV main database; Local-First Antivirus imports file-hash signatures it can use.",
     },
     "ClamAV Bytecode CVD (not compatible yet)": {
         "kind": "unsupported",
@@ -49,14 +52,14 @@ DEFINITION_SOURCE_NAMES = tuple(DEFINITION_SOURCES)
 
 
 def download_definitions(url: str, timeout: int = 20) -> Path:
-    request = Request(url, headers={"User-Agent": "LocalShieldAV/0.1"})
+    request = Request(url, headers={"User-Agent": HTTP_USER_AGENT})
     with urlopen(request, timeout=timeout) as response:
         if response.status >= 400:
             raise RuntimeError(f"Definitions server returned HTTP {response.status}.")
         body = response.read(5 * 1024 * 1024)
     raw = json.loads(body.decode("utf-8"))
     validate_definitions(raw)
-    temp = Path(tempfile.gettempdir()) / f"localshield-definitions-{uuid.uuid4().hex}.json"
+    temp = Path(tempfile.gettempdir()) / f"lfs-antivirus-aaha-definitions-{uuid.uuid4().hex}.json"
     write_json(temp, raw)
     return temp
 
@@ -79,7 +82,7 @@ def update_definitions_from_source(source_name: str):
         temp = download_clamav_cvd(source["url"], source_name)
         try:
             converted = convert_clamav_cvd_file(temp, source_name)
-            converted_path = Path(tempfile.gettempdir()) / f"localshield-clamav-{uuid.uuid4().hex}.json"
+            converted_path = Path(tempfile.gettempdir()) / f"lfs-antivirus-aaha-clamav-{uuid.uuid4().hex}.json"
             write_json(converted_path, converted)
             try:
                 return install_definitions(converted_path)
@@ -91,8 +94,8 @@ def update_definitions_from_source(source_name: str):
 
 
 def download_clamav_cvd(url: str, source_name: str, timeout: int = 60) -> Path:
-    request = Request(url, headers={"User-Agent": "LocalShieldAV/0.1"})
-    temp = Path(tempfile.gettempdir()) / f"localshield-{uuid.uuid4().hex}.cvd"
+    request = Request(url, headers={"User-Agent": HTTP_USER_AGENT})
+    temp = Path(tempfile.gettempdir()) / f"lfs-antivirus-aaha-{uuid.uuid4().hex}.cvd"
     total = 0
     with urlopen(request, timeout=timeout) as response:
         if response.status >= 400:

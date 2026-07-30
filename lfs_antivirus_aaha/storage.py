@@ -1,3 +1,5 @@
+"""Application-state paths and JSON persistence for Local-First Antivirus."""
+
 from __future__ import annotations
 
 import json
@@ -6,14 +8,49 @@ from pathlib import Path
 from typing import Any
 
 
-APP_NAME = "LocalShieldAV"
+APP_DIRECTORY_NAME = "lfs-antivirus-aaha"
+APP_ORGANIZATION_DIRECTORY = "AAHA"
+LEGACY_APP_DIRECTORY_NAME = "LocalShieldAV"
+
+
+def canonical_app_data_dir() -> Path:
+    """Return the canonical AAHA data directory for new installations."""
+
+    root = os.environ.get("LOCALAPPDATA")
+    if root:
+        return Path(root) / APP_ORGANIZATION_DIRECTORY / APP_DIRECTORY_NAME
+    return (
+        Path.home()
+        / ".local"
+        / "share"
+        / APP_ORGANIZATION_DIRECTORY.lower()
+        / APP_DIRECTORY_NAME
+    )
+
+
+def legacy_app_data_dir() -> Path:
+    """Return the pre-0.2 LocalShieldAV data directory."""
+
+    root = os.environ.get("LOCALAPPDATA")
+    if root:
+        return Path(root) / LEGACY_APP_DIRECTORY_NAME
+    return Path.home() / f".{LEGACY_APP_DIRECTORY_NAME.lower()}"
 
 
 def app_data_dir() -> Path:
-    root = os.environ.get("LOCALAPPDATA")
-    if root:
-        return Path(root) / APP_NAME
-    return Path.home() / f".{APP_NAME.lower()}"
+    """Use legacy state in place until the user intentionally migrates it.
+
+    Automatically moving antivirus quarantine data is risky: interruption or a
+    partial copy could strand quarantined files. A new installation uses the
+    canonical AAHA path, while an existing legacy-only installation continues
+    using its original directory without modification.
+    """
+
+    canonical = canonical_app_data_dir()
+    legacy = legacy_app_data_dir()
+    if not canonical.exists() and legacy.exists():
+        return legacy
+    return canonical
 
 
 def repo_root() -> Path:
@@ -69,7 +106,7 @@ def write_json(path: Path, value: Any) -> None:
 DEFAULT_SETTINGS: dict[str, Any] = {
     "max_file_size_mb": 64,
     "enable_heuristics": True,
-    "definition_source": "Bundled LocalShield demo definitions",
+    "definition_source": "Bundled Local-First Antivirus demo definitions",
     "app_update_url": "",
     "theme": "Default",
     "last_scan": None,

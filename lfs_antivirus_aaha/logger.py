@@ -1,3 +1,5 @@
+"""Local log handling for Local-First Antivirus."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -8,7 +10,7 @@ from .storage import ensure_app_dirs, logs_dir
 
 def log_path() -> Path:
     ensure_app_dirs()
-    return logs_dir() / "localshield.log"
+    return logs_dir() / "lfs-antivirus-aaha.log"
 
 
 def append_log(message: str) -> None:

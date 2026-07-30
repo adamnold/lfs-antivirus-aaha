@@ -12,11 +12,11 @@
   ],
   "content": [
     {
-      "id": "LS-DEMO-001",
-      "name": "LocalShield Demo Test Signature",
+      "id": "LFS-AAHA-DEMO-001",
+      "name": "Local-First Antivirus Demo Test Signature",
       "severity": "high",
-      "pattern": "LOCALSHIELD_TEST_THREAT",
-      "description": "Harmless local test signature for validating detections without using live malware."
+      "pattern": "LFS_ANTIVIRUS_AAHA_TEST_THREAT",
+      "description": "Harmless AAHA Local-First Series test signature for validating detections without using live malware."
     }
   ],
   "heuristics": {
