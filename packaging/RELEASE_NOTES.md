@@ -7,7 +7,7 @@ on-demand scanner interface, not complete endpoint protection.
 
 ## What is included
 
-- A Python-free Windows x64 per-user installer for the AAHA application.
+- A Windows x64 per-user installer that requires no separate Python installation.
 - Exact-path integration with a separately installed ClamAV command-line engine.
 - Read-only local scans, user-triggered official FreshClam definition updates,
   failure-safe database activation/recovery, and read-only display of preserved
