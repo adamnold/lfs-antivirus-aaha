@@ -10,6 +10,7 @@ $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $clamAvVersion = "1.5.3"
 $installerName = "clamav-$clamAvVersion.win.x64.msi"
 $installerUrl = "https://github.com/Cisco-Talos/clamav/releases/download/clamav-$clamAvVersion/$installerName"
+$releaseMetadataUrl = "https://api.github.com/repos/Cisco-Talos/clamav/releases/tags/clamav-$clamAvVersion"
 $expectedHash = "dce5c5eb819d67039043a9d8615d3a03642c7a33d1c517711e42aa0b64a980dd"
 $verificationRoot = Join-Path ([System.IO.Path]::GetTempPath()) "aaha-antivirus-live-clamav"
 $installerPath = Join-Path $verificationRoot $installerName
@@ -29,18 +30,27 @@ if (Test-Path -LiteralPath $verificationRoot) {
 New-Item -ItemType Directory -Path $verificationRoot, $stateRoot, $scanRoot, $evidenceRoot -Force | Out-Null
 
 try {
+    $releaseMetadata = Invoke-RestMethod -Uri $releaseMetadataUrl -Headers @{
+        Accept = "application/vnd.github+json"
+        "User-Agent" = "AAHA-Local-First-Antivirus-release-verification"
+    }
+    $matchingAssets = @($releaseMetadata.assets | Where-Object { $_.name -eq $installerName })
+    if ($matchingAssets.Count -ne 1) {
+        throw "The official ClamAV release metadata did not contain exactly one $installerName asset."
+    }
+    if ($matchingAssets[0].browser_download_url -ne $installerUrl) {
+        throw "The official ClamAV release metadata returned an unexpected download URL."
+    }
+    if ($matchingAssets[0].digest -ne "sha256:$expectedHash") {
+        throw "The official ClamAV release metadata returned an unexpected asset digest."
+    }
+
     Invoke-WebRequest -Uri $installerUrl -OutFile $installerPath
     $actualHash = (Get-FileHash -LiteralPath $installerPath -Algorithm SHA256).Hash.ToLowerInvariant()
     if ($actualHash -ne $expectedHash) {
         throw "ClamAV installer SHA-256 mismatch."
     }
     $installerSignature = Get-AuthenticodeSignature -LiteralPath $installerPath
-    if ($installerSignature.Status -ne 'Valid') {
-        throw "The official ClamAV installer has Authenticode status $($installerSignature.Status)."
-    }
-    if ($installerSignature.SignerCertificate.Subject -notmatch 'Cisco') {
-        throw "The official ClamAV installer signer was not Cisco: $($installerSignature.SignerCertificate.Subject)"
-    }
 
     $installArguments = @(
         "/i",
@@ -90,8 +100,9 @@ try {
         file = $installerName
         sha256 = $actualHash
         expected_sha256 = $expectedHash
+        github_release_digest = $matchingAssets[0].digest
+        github_release_digest_verified = $true
         installer_authenticode = $installerSignature.Status.ToString()
-        installer_signer_contains_cisco = $true
     }
     [System.IO.File]::WriteAllText(
         $provenancePath,

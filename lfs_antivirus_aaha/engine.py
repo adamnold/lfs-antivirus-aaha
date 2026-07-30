@@ -252,10 +252,13 @@ def _timeout_output(exc: subprocess.TimeoutExpired) -> str:
 
 
 def _terminate_process_tree(process: subprocess.Popen[str]) -> None:
-    """Request graceful termination for the process and its descendants."""
+    """Terminate descendants while the parent still identifies the process tree."""
 
     if os.name == "nt":
-        _run_taskkill(process.pid, force=False)
+        # Console children can retain the inherited stdout pipe after their
+        # parent exits. Kill the complete tree before terminating the parent so
+        # communicate() cannot remain blocked on a surviving descendant.
+        _run_taskkill(process.pid, force=True)
     else:
         try:
             os.killpg(process.pid, signal.SIGTERM)

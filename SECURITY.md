@@ -39,9 +39,9 @@ Do not send live malware.
   rejects mapped/UNC drives plus link, junction, or reparse-point ancestry.
 - Engine validation confirms identity signals, not publisher signature or
   provenance. Users must obtain ClamAV from a trusted official distribution.
-  The release workflow separately verifies the official ClamAV 1.5.3 installer
-  hash and Cisco Authenticode publisher for acceptance; that build-time check does not
-  replace runtime provenance validation.
+  The release workflow separately verifies the official ClamAV 1.5.3 GitHub
+  release asset URL, published digest, and downloaded MSI hash for acceptance;
+  that build-time check does not replace runtime provenance validation.
 - Scans do not pass ClamAV's destructive `--remove`, `--move`, or `--copy`
   options. Archive expansion and symlink following are disabled.
 - Scan exit `0` is clean, `1` is infected only with a parseable `FOUND` line,

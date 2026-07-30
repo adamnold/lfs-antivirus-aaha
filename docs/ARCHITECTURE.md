@@ -35,9 +35,9 @@ are removed. Production scanning no longer uses AAHA demo/hash/heuristic rules.
 3. Every invocation passes a Python argument list to `subprocess.Popen` with
    `shell=False`, a disabled stdin, merged output, a hidden Windows console, and
    no `PATH` lookup.
-4. Cancellation is polled while the process runs; graceful process-group/tree
-   termination is requested immediately, followed by a forced tree stop and
-   bounded final waits if the process does not stop within the grace period.
+4. Cancellation is polled while the process runs. POSIX gets a graceful process-
+   group request followed by a forced stop; Windows stops the full process tree
+   while the parent still identifies its descendants. Final waits are bounded.
 
 Validation is session-local and does not verify Authenticode publisher at
 runtime. Release automation pins and live-tests official ClamAV 1.5.3 x64; the
@@ -118,10 +118,10 @@ The release-candidate workflow verifies source tests and dependency audit,
 executable metadata, the expected unsigned state, install and same-version
 upgrade, visible UI launch and clean exit, uninstall, shortcut cleanup, and
 preservation of canonical and legacy application state. A separate live gate
-verifies the official ClamAV installer hash and Cisco Authenticode publisher,
-runs FreshClam against disposable state, and scans a benign local probe. Release
-and evidence artifacts are produced by CI; the workflow itself has read-only
-repository permissions and cannot publish a GitHub release.
+verifies the official ClamAV GitHub asset URL, published digest, and downloaded
+installer hash, runs FreshClam against disposable state, and scans a benign
+local probe. Release and evidence artifacts are produced by CI; the workflow
+itself has read-only repository permissions and cannot publish a GitHub release.
 
 ## Deferred work
 

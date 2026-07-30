@@ -195,10 +195,12 @@ class EngineTests(unittest.TestCase):
         process.poll.return_value = None
         with (
             patch("lfs_antivirus_aaha.engine.subprocess.Popen", return_value=process),
+            patch("lfs_antivirus_aaha.engine._terminate_process_tree") as terminate_tree,
             patch("lfs_antivirus_aaha.engine._force_kill_process_tree") as force_kill,
         ):
             result = run_command(["C:/ClamAV/clamscan.exe", "C:/sample"], cancel_event=cancelled)
 
+        terminate_tree.assert_called_once_with(process)
         force_kill.assert_called_once_with(process)
         process.stdout.close.assert_called_once_with()
         self.assertEqual(result.returncode, -9)
