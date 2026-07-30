@@ -14,4 +14,3 @@ dist/
 .ruff_cache/
 *.log
 *.zip
-lfs-antivirus-aaha-downloaded-signatures.json

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Local-First Antivirus shield">
+  <defs>
+    <linearGradient id="shield" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#36b7b4"/>
+      <stop offset="1" stop-color="#2f80ed"/>
+    </linearGradient>
+  </defs>
+  <rect x="16" y="16" width="480" height="480" rx="112" fill="#0b1f33"/>
+  <path d="M256 70 414 126v119c0 99-61 169-158 205C159 414 98 344 98 245V126L256 70Z" fill="url(#shield)" stroke="#eaf7ff" stroke-width="18" stroke-linejoin="round"/>
+  <path d="m172 260 55 55 118-126" fill="none" stroke="#ffffff" stroke-width="30" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="172" cy="260" r="13" fill="#0b1f33"/>
+  <circle cx="227" cy="315" r="13" fill="#0b1f33"/>
+  <circle cx="345" cy="189" r="13" fill="#0b1f33"/>
+</svg>
