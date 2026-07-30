@@ -11,19 +11,19 @@ from tkinter import filedialog, messagebox, ttk
 if __package__ in {None, ""}:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from localshield_av import __version__
-from localshield_av.definitions import (
+from lfs_antivirus_aaha import __version__
+from lfs_antivirus_aaha.definitions import (
     export_active_definitions,
     install_definitions,
     load_definitions,
     reset_to_bundled_definitions,
 )
-from localshield_av.logger import append_log, read_log_tail
-from localshield_av.models import ScanFinding, ScanSummary
-from localshield_av.quarantine import delete_record, list_records, quarantine_file, restore_record
-from localshield_av.scanner import LocalScanner
-from localshield_av.storage import app_data_dir, ensure_app_dirs, load_settings, save_settings
-from localshield_av.updater import DEFINITION_SOURCE_NAMES, DEFINITION_SOURCES, update_definitions_from_source
+from lfs_antivirus_aaha.logger import append_log, read_log_tail
+from lfs_antivirus_aaha.models import ScanFinding, ScanSummary
+from lfs_antivirus_aaha.quarantine import delete_record, list_records, quarantine_file, restore_record
+from lfs_antivirus_aaha.scanner import LocalScanner
+from lfs_antivirus_aaha.storage import app_data_dir, ensure_app_dirs, load_settings, save_settings
+from lfs_antivirus_aaha.updater import DEFINITION_SOURCE_NAMES, DEFINITION_SOURCES, update_definitions_from_source
 
 
 THEMES = {
@@ -158,11 +158,11 @@ class RoundedPanel(tk.Frame):
         self.canvas.create_polygon(points, smooth=True, **kwargs)
 
 
-class LocalShieldApp(tk.Tk):
+class LocalFirstAntivirusApp(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
         ensure_app_dirs()
-        self.title("LocalShield AV")
+        self.title("Local-First Antivirus — AAHA Local-First Series")
         self.geometry("1120x720")
         self.minsize(960, 600)
 
@@ -244,7 +244,14 @@ class LocalShieldApp(tk.Tk):
 
         header = ttk.Frame(root)
         header.pack(fill=tk.X, pady=(0, 12))
-        ttk.Label(header, text="LocalShield AV", style="Title.TLabel").pack(side=tk.LEFT)
+        brand = ttk.Frame(header)
+        brand.pack(side=tk.LEFT)
+        ttk.Label(brand, text="Local-First Antivirus", style="Title.TLabel").pack(anchor=tk.W)
+        ttk.Label(
+            brand,
+            text="Adam And His Agents (AAHA) · Local-First Series",
+            style="Muted.TLabel",
+        ).pack(anchor=tk.W)
         ttk.Label(header, textvariable=self.status_var, style="Muted.TLabel").pack(side=tk.RIGHT)
 
         self.notebook = ttk.Notebook(root)
@@ -578,7 +585,7 @@ class LocalShieldApp(tk.Tk):
         if not messagebox.askyesno(
             "Confirm Quarantine",
             f"Move {len(by_path)} selected file(s) to quarantine?\n\n"
-            "This is a manual action. LocalShield does not quarantine scan findings automatically.",
+            "This is a manual action. Local-First Antivirus does not quarantine scan findings automatically.",
         ):
             append_log("Quarantine cancelled by user.")
             return
@@ -797,7 +804,7 @@ class LocalShieldApp(tk.Tk):
 
 
 def main() -> None:
-    app = LocalShieldApp()
+    app = LocalFirstAntivirusApp()
     app.mainloop()
 
 

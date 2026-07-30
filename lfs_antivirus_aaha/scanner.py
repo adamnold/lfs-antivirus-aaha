@@ -1,3 +1,5 @@
+"""Read-only scanning engine for Local-First Antivirus."""
+
 from __future__ import annotations
 
 import hashlib

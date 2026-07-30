@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from localshield_av.updater import convert_clamav_cvd_file, parse_clamav_hash_line
+from lfs_antivirus_aaha.updater import convert_clamav_cvd_file, parse_clamav_hash_line
 
 
 class UpdaterTests(unittest.TestCase):

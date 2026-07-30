@@ -1,3 +1,5 @@
+"""Core data models for Local-First Antivirus."""
+
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field

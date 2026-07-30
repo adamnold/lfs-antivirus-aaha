@@ -1,24 +1,35 @@
+import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
-from localshield_av.definitions import Definitions
-from localshield_av.definitions import load_definitions
-from localshield_av.models import ScanFinding, Signature
-from localshield_av.quarantine import quarantine_file, restore_record
-from localshield_av.scanner import LocalScanner
+from lfs_antivirus_aaha.definitions import Definitions
+from lfs_antivirus_aaha.definitions import load_definitions
+from lfs_antivirus_aaha.models import ScanFinding, Signature
+from lfs_antivirus_aaha.quarantine import quarantine_file, restore_record
+from lfs_antivirus_aaha.scanner import LocalScanner
 
 
 class ScannerTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.app_data = tempfile.TemporaryDirectory()
+        self.local_app_data = patch.dict(os.environ, {"LOCALAPPDATA": self.app_data.name})
+        self.local_app_data.start()
+
+    def tearDown(self) -> None:
+        self.local_app_data.stop()
+        self.app_data.cleanup()
+
     def test_demo_content_signature_is_detected(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp) / "sample.txt"
-            path.write_text("hello LOCALSHIELD_TEST_THREAT world", encoding="utf-8")
+            path.write_text("hello LFS_ANTIVIRUS_AAHA_TEST_THREAT world", encoding="utf-8")
             scanner = LocalScanner(load_definitions())
 
             findings = scanner.scan_file(path)
 
-            self.assertTrue(any(item.threat_name == "LocalShield Demo Test Signature" for item in findings))
+            self.assertTrue(any(item.threat_name == "Local-First Antivirus Demo Test Signature" for item in findings))
 
     def test_double_extension_heuristic(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -60,7 +71,7 @@ class ScannerTests(unittest.TestCase):
     def test_quarantine_restore_round_trip(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp) / "sample-threat.txt"
-            path.write_text("LOCALSHIELD_TEST_THREAT", encoding="utf-8")
+            path.write_text("LFS_ANTIVIRUS_AAHA_TEST_THREAT", encoding="utf-8")
             finding = ScanFinding(
                 path=str(path),
                 threat_name="Unit Test Threat",

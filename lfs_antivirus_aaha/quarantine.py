@@ -1,3 +1,5 @@
+"""User-directed quarantine operations for Local-First Antivirus."""
+
 from __future__ import annotations
 
 import shutil
