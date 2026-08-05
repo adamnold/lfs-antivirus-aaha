@@ -17,7 +17,7 @@ rm -rf "$build_directory" "$repository"
 rm -f "$release" "$release.sha256"
 mkdir -p "$repo_root/dist/release"
 if flatpak info --user org.flatpak.Builder >/dev/null 2>&1; then
-    flatpak run --command=flatpak-builder org.flatpak.Builder --user --force-clean --repo="$repository" --default-branch=beta "$build_directory" "$manifest"
+    flatpak run org.flatpak.Builder --user --force-clean --repo="$repository" --default-branch=beta "$build_directory" "$manifest"
 elif command -v "$builder" >/dev/null 2>&1; then
     "$builder" --user --force-clean --repo="$repository" --default-branch=beta "$build_directory" "$manifest"
 else
