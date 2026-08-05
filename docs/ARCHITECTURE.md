@@ -1,139 +1,95 @@
 # Architecture
 
-Last Updated: 2026-07-29
+Last Updated: 2026-08-05
 
-## Summary
+## Boundaries
 
-Local-First Antivirus `0.3.0-beta.1` is an unsigned Windows x64 prerelease. Its
-single-process Python/Tkinter UI starts worker threads that supervise a
-separately installed ClamAV command-line engine. The installer embeds the
-Python/Tk runtime but not ClamAV. The application has no service, browser UI,
-account, remote backend, telemetry, or automatic updater.
+```text
+Tkinter UI and platform context
+  -> engine-provider resolution and provenance
+  -> bounded traversal and scan accounting
+  -> fixed-argv clamscan / freshclam child processes
+  -> local definition and state directories
+```
 
-## Components
+The application is a Python/Tk desktop process. It has no service, browser UI,
+account, remote backend, telemetry, automatic updater, or linked `libclamav`.
+ClamAV always runs as separate executables under the invoking user's authority.
 
-| Path | Responsibility |
-| --- | --- |
-| `lfs_antivirus_aaha/app.py` | Tkinter tabs, truthful state, worker events, cancellation |
-| `lfs_antivirus_aaha/engine.py` | Exact executable validation and shell-free process supervision |
-| `lfs_antivirus_aaha/scanner.py` | Safe scan argv, target validation, ClamAV output/exit parsing |
-| `lfs_antivirus_aaha/updater.py` | FreshClam staging, validation, transactional activation/recovery |
-| `lfs_antivirus_aaha/quarantine.py` | Read-only listing of preserved legacy records |
-| `lfs_antivirus_aaha/storage.py` | Canonical/legacy data selection and atomic settings JSON |
-| `lfs_antivirus_aaha/logger.py` | Local append-only activity summaries |
-| `lfs_antivirus_aaha/models.py` | Findings, scan summaries, and legacy record models |
+## Platform and engine providers
 
-The earlier `definitions.py` module and bundled `definitions/signatures.json`
-are removed. Production scanning no longer uses AAHA demo/hash/heuristic rules.
+`platform_support.py` isolates package detection, XDG/Windows paths, file
+selection mode, process launching, and engine location.
 
-## External engine boundary
+- Windows uses exact user-selected `clamscan.exe`/`freshclam.exe` paths and an
+  embedded release-generated executable-hash manifest in packaged builds.
+- AppImage and Flatpak use package-owned ClamAV 1.5.3 executables and require
+  their adjacent provenance manifest.
+- RPM resolves Fedora's system `clamscan`/`freshclam` and records
+  `system-package-and-version` provenance.
 
-1. The user selects absolute `clamscan.exe` and `freshclam.exe` paths.
-2. `engine.validate_installation()` requires exact filenames, normal files from
-   one resolved local directory without mapped/UNC or link/reparse ancestry, and
-   a ClamScan version response plus FreshClam's versioned help identity. The help
-   route is required because FreshClam parses its configuration before handling
-   `--version`, while `--help` exits before configuration parsing.
-3. Every invocation passes a Python argument list to `subprocess.Popen` with
-   `shell=False`, a disabled stdin, merged output, a hidden Windows console, and
-   no `PATH` lookup.
-4. Cancellation is polled while the process runs. POSIX gets a graceful process-
-   group request followed by a forced stop; Windows stops the full process tree
-   while the parent still identifies its descendants. Final waits are bounded.
+Validation requires the two executables in one directory, fixed expected names,
+SHA-256 values, ClamScan version identity, and FreshClam help identity. Bundled
+or packaged Windows engines fail closed if their manifest is missing or hashes
+differ. Release automation verifies the upstream Windows installer and, when
+provided upstream, its Authenticode publisher before producing the manifest.
 
-Validation is session-local and does not verify Authenticode publisher at
-runtime. Release automation pins and live-tests official ClamAV 1.5.3 x64; the
-user still controls and must trust the exact installation selected at runtime.
+All invocations use argument arrays, `shell=False`, closed stdin, bounded waits,
+and process-tree cancellation. POSIX uses a new process group; Windows uses
+bounded tree termination while the parent still identifies descendants.
 
-## Scan flow
+## Bounded scan flow
 
-1. The UI requires a session-validated engine and ready Main/Daily database.
-2. The selected target must exist, be a local file/directory, not use a mapped
-   or UNC network location, not be the active application-data tree, and have no
-   symbolic-link, junction, or reparse-point ancestry.
-3. A worker invokes `clamscan` with the app-owned database, official-database-
-   only mode, no archive expansion, no symlink following, no cross-filesystem
-   traversal, infected-only output, and recursion only for a directory.
-4. The adapter does not pass ClamAV quarantine/delete/copy options.
-5. `FOUND` and `ERROR` lines are parsed at the first `: ` separator so a Windows
-   drive-letter colon is preserved. `Scanned files` comes from ClamAV's summary.
-6. Exit `0` means no infection reported; exit `1` requires a parsed finding;
-   other or inconsistent results become visible errors.
+1. Validate a selected local regular file/directory outside application state.
+2. Stream directory entries through a bounded stack of `scandir` iterators.
+3. Classify links/non-regular files as skipped, files over 100 MiB as oversized,
+   and metadata/access errors as failed.
+4. Send at most 64 files and 20,000 argument characters per ClamAV batch.
+5. Invoke ClamAV with official-database-only mode, archive scanning disabled,
+   no link following, a 400 MiB per-file scan expansion limit, and no
+   cross-filesystem traversal.
+6. Parse findings/errors and reconcile every enumerated item into one terminal
+   accounting state. Missing terminal ClamAV results become failures.
 
-ClamAV retains its own access and resource limits. This beta does not enumerate
-the target independently, so it cannot yet reconcile every inaccessible or
-internally skipped file. The UI says what ClamAV reported and warns on errors
-rather than asserting complete system cleanliness.
+Cancellation accounts for unscanned batch items. Clean exit with infection
+output, infected exit without a parseable finding, incomplete summary output,
+timeout, or non-0/1 exit becomes a visible error. No destructive ClamAV option
+is passed.
 
-## Definition-update flow
+## Definition transaction
 
-1. An update starts only after the user selects **Update Definitions** and takes
-   a non-blocking OS lock shared by definition recovery/update operations in all
-   app processes.
-2. The current database is copied to a sibling staging directory so FreshClam
-   can attempt an incremental update without touching the active database.
-3. The app writes a minimal local `freshclam.conf` naming the staging directory
-   and official `database.clamav.net` mirror.
-4. A fixed-argv `freshclam` process runs with a 15-minute supervisor timeout.
-5. Main and Daily database files must exist. A fixed-argv `clamscan` probe must
-   load the staged official database and return clean.
-6. An atomic control barrier ends the cancellable phase. Only then is a
-   transaction marker written, the active directory renamed to
-   a temporary `previous` location, and staging renamed active on the same
-   volume. A caught activation failure restores the prior active directory.
-7. After the new database is active, `previous` rotates to the backup location
-   and the marker is removed. Startup recovery uses the marker plus the active,
-   previous, and backup directories to finish or roll back an interrupted move.
-8. Failure or cancellation before activation removes staging and does not
-   replace active data.
+FreshClam writes only into a sibling staging directory. The app verifies Main
+and Daily database presence and loads the candidate through ClamAV before an
+atomic same-filesystem activation. A lock serializes recovery/updates across
+processes. The prior active set rotates to a backup; a transaction marker plus
+active/previous/backup directories allows startup to finish or roll back an
+interrupted activation.
 
-FreshClam performs its own official database retrieval and database tests. The
-application no longer downloads or parses CVD containers itself.
+## Packaging
 
-## State layout and legacy preservation
+The stable app ID is `com.aaha.lfs-antivirus-aaha`.
 
-New state is rooted at `%LOCALAPPDATA%\AAHA\lfs-antivirus-aaha`:
+- AppImage/Flatpak payloads are built on Ubuntu 22.04 with pinned Python and
+  ClamAV 1.5.3 binaries. The AppImage tool and type-2 runtime are pinned by hash.
+- Flatpak pins Freedesktop 25.08 and grants network/display/portal access but no
+  broad host filesystem path.
+- RPM installs Python source/UI with Fedora `python3-tkinter`, `clamav`, and
+  `clamav-freshclam` dependencies; user state is never package-owned.
+- Windows uses PyInstaller and a stable per-user Inno Setup AppId. Signing is an
+  isolated optional layer whose accepted legal identity is Technology Biased LLC.
 
-- `settings.json`
-- `logs/lfs-antivirus-aaha.log`
-- `clamav-database/`
-- `clamav-database.backup/` after a successful replacement
-- transaction-only `.staging`/`.previous` directories and activation marker,
-  removed after activation or recovery
-- `clamav-database.lock`, a persistent coordination file whose OS lock is held
-  only during recovery or a requested definition update
-- a temporary `freshclam.conf` only while a requested update is active
-- preserved `quarantine/` state, if any
+The ClamAV official package hash, corresponding-source hash, executable hashes,
+GPLv2 text, notices, and source archive are enforced by
+`verify-linux-compliance.py`. ClamAV is aggregated, not linked into AAHA code.
 
-`storage.app_data_dir()` uses `%LOCALAPPDATA%\LocalShieldAV` only when the
-canonical directory does not exist and that legacy directory does. It does not
-copy, merge, restore, or delete legacy state.
+Platform paths, process control, engine selection, icons, and packaging remain
+outside scan/update logic. Future macOS work adds an Apple packaging/signing and
+file-selection layer rather than another application redesign.
 
-## Windows package and release gates
+## Deliberately absent and external gates
 
-The package uses an exact Python 3.13.14 Windows x64 runner, pinned PyInstaller
-inputs, a multi-resolution AAHA icon, and an Inno Setup 7.0.2 per-user installer.
-The onedir bundle includes the AAHA, Python, and Tcl/Tk notices and deliberately
-contains no Python source files, ClamAV executables, or definitions.
-
-The release-candidate workflow verifies source tests and dependency audit,
-executable metadata, the expected unsigned state, install and same-version
-upgrade, visible UI launch and clean exit, uninstall, shortcut cleanup, and
-preservation of canonical and legacy application state. A separate live gate
-verifies the official ClamAV GitHub asset URL, published digest, and downloaded
-installer hash, runs FreshClam against disposable state, and scans a benign
-local probe. Release and evidence artifacts are produced by CI; the workflow
-itself has read-only repository permissions and cannot publish a GitHub release.
-
-## Deferred work
-
-- Repeat UI and external-engine acceptance on clean physical Windows 10 and 11
-  systems; current automated acceptance runs on GitHub's Windows runner.
-- Expand redirected-output, cancellation/commit UI, access-denied, scan-limit,
-  and large-target coverage beyond the current clean-probe release gate.
-- Add executable publisher/provenance verification.
-- Decide whether to build a new transactional, recoverable quarantine workflow.
-- Provision an AAHA code-signing certificate and add signed-publisher gates.
-- Real-time/on-access protection, privileged scans, services, scheduling,
-  Security Center integration, telemetry, and automatic remediation remain out
-  of scope.
+Quarantine/restore/delete, real-time/on-access protection, privileged scans,
+services, scheduling, automatic remediation, Security Center integration, and
+Defender-replacement claims are absent. Physical ordinary-user Windows 10/11,
+future signed-artifact verification, and independent security review remain
+external acceptance gates.

@@ -1,0 +1,2 @@
+# Runtime dependency used only by the sandboxed Flatpak file picker.
+dbus-next==0.2.3

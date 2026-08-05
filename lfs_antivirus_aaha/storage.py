@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 from pathlib import Path
 from typing import Any
+
+from .platform_support import config_home, data_home, state_home
 
 
 APP_DIRECTORY_NAME = "lfs-antivirus-aaha"
@@ -16,16 +19,10 @@ LEGACY_APP_DIRECTORY_NAME = "LocalShieldAV"
 def canonical_app_data_dir() -> Path:
     """Return the canonical AAHA data directory for new installations."""
 
-    root = os.environ.get("LOCALAPPDATA")
-    if root:
-        return Path(root) / APP_ORGANIZATION_DIRECTORY / APP_DIRECTORY_NAME
-    return (
-        Path.home()
-        / ".local"
-        / "share"
-        / APP_ORGANIZATION_DIRECTORY.lower()
-        / APP_DIRECTORY_NAME
-    )
+    local_app_data = os.environ.get("LOCALAPPDATA")
+    if local_app_data:
+        return Path(local_app_data) / APP_ORGANIZATION_DIRECTORY / APP_DIRECTORY_NAME
+    return data_home() / APP_ORGANIZATION_DIRECTORY.lower() / APP_DIRECTORY_NAME
 
 
 def legacy_app_data_dir() -> Path:
@@ -70,11 +67,15 @@ def quarantine_dir() -> Path:
 
 
 def logs_dir() -> Path:
-    return app_data_dir() / "logs"
+    if os.environ.get("LOCALAPPDATA") or os.name == "nt":
+        return app_data_dir() / "logs"
+    return state_home() / APP_ORGANIZATION_DIRECTORY.lower() / APP_DIRECTORY_NAME / "logs"
 
 
 def settings_path() -> Path:
-    return app_data_dir() / "settings.json"
+    if os.environ.get("LOCALAPPDATA") or os.name == "nt":
+        return app_data_dir() / "settings.json"
+    return config_home() / APP_ORGANIZATION_DIRECTORY.lower() / APP_DIRECTORY_NAME / "settings.json"
 
 
 def ensure_app_dirs() -> None:
@@ -114,7 +115,20 @@ DEFAULT_SETTINGS: dict[str, Any] = {
 
 def load_settings() -> dict[str, Any]:
     ensure_app_dirs()
-    loaded = read_json(settings_path(), {})
+    canonical_settings = settings_path()
+    legacy_settings = app_data_dir() / "settings.json"
+    if (
+        os.name != "nt"
+        and not canonical_settings.exists()
+        and legacy_settings.exists()
+        and legacy_settings != canonical_settings
+    ):
+        canonical_settings.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            shutil.copy2(legacy_settings, canonical_settings)
+        except OSError:
+            pass
+    loaded = read_json(canonical_settings, {})
     settings = dict(DEFAULT_SETTINGS)
     if isinstance(loaded, dict):
         settings.update(loaded)

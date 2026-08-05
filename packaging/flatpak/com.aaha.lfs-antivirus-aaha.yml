@@ -1,0 +1,32 @@
+app-id: com.aaha.lfs-antivirus-aaha
+runtime: org.freedesktop.Platform
+runtime-version: '25.08'
+sdk: org.freedesktop.Sdk
+command: local-first-antivirus
+finish-args:
+  - --share=ipc
+  - --share=network
+  - --socket=fallback-x11
+  - --socket=wayland
+  - --talk-name=org.freedesktop.portal.Desktop
+modules:
+  - name: lfs-antivirus-aaha
+    buildsystem: simple
+    build-commands:
+      - install -d /app/libexec/lfs-antivirus-aaha/app
+      - cp -a . /app/libexec/lfs-antivirus-aaha/app/
+      - install -Dm755 local-first-antivirus /app/bin/local-first-antivirus
+      - install -Dm644 com.aaha.lfs-antivirus-aaha.desktop /app/share/applications/com.aaha.lfs-antivirus-aaha.desktop
+      - install -Dm644 com.aaha.lfs-antivirus-aaha.metainfo.xml /app/share/metainfo/com.aaha.lfs-antivirus-aaha.metainfo.xml
+      - install -Dm644 lfs-antivirus-aaha.svg /app/share/icons/hicolor/scalable/apps/com.aaha.lfs-antivirus-aaha.svg
+    sources:
+      - type: dir
+        path: ../../dist/linux-payload/Local-First Antivirus
+      - type: file
+        path: ../linux/local-first-antivirus
+      - type: file
+        path: ../linux/com.aaha.lfs-antivirus-aaha.desktop
+      - type: file
+        path: ../linux/com.aaha.lfs-antivirus-aaha.metainfo.xml
+      - type: file
+        path: ../../assets/lfs-antivirus-aaha.svg

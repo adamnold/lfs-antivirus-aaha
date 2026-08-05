@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import os
+import stat
 import threading
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Iterator
 
 from .engine import resolve_local_path, run_command
 from .models import ScanFinding, ScanSummary, utc_now_iso
@@ -14,6 +18,19 @@ SUMMARY_INTEGER_KEYS = {
     "Scanned files": "files_scanned",
     "Infected files": "infected_files",
 }
+
+MAX_FILE_SIZE_BYTES = 100 * 1024 * 1024
+MAX_SCAN_SIZE_MIB = 400
+MAX_BATCH_FILES = 64
+MAX_BATCH_ARGUMENT_CHARS = 20_000
+
+
+@dataclass(frozen=True)
+class ScanItem:
+    outcome: str
+    path: Path
+    size: int = 0
+    detail: str = ""
 
 
 class ClamAvScanner:
@@ -32,32 +49,178 @@ class ClamAvScanner:
         if not database_is_ready(self.database_dir):
             raise RuntimeError("ClamAV definitions are not ready. Run Update Definitions first.")
 
-        argv = [
+        base_argv = [
             str(self.clamscan_path),
             f"--database={self.database_dir}",
             "--official-db-only=yes",
             "--infected",
             "--scan-archive=no",
+            "--max-filesize=100M",
+            f"--max-scansize={MAX_SCAN_SIZE_MIB}M",
             "--follow-dir-symlinks=0",
             "--follow-file-symlinks=0",
             "--cross-fs=no",
             "--stdout",
         ]
-        if target.is_dir():
-            argv.append("--recursive=yes")
-        argv.append(str(target))
-
         started_at = utc_now_iso()
-        result = run_command(argv, cancel_event=cancel_event)
-        return parse_clamscan_output(
-            result.output,
-            root=target,
+        summary = ScanSummary(
             started_at=started_at,
+            completed_at=started_at,
+            root=str(target),
+            exit_code=0,
+            engine_version=self.engine_version,
+        )
+        pending: list[ScanItem] = []
+        pending_chars = 0
+
+        for item in stream_scan_items(target):
+            if cancel_event and cancel_event.is_set():
+                break
+            summary.files_enumerated += 1
+            if item.outcome == "skipped":
+                summary.files_skipped += 1
+                continue
+            if item.outcome == "oversized":
+                summary.files_oversized += 1
+                continue
+            if item.outcome == "failed":
+                summary.files_failed += 1
+                summary.errors.append(f"{item.path}: {item.detail}"[:500])
+                continue
+
+            path_chars = len(str(item.path)) + 1
+            if pending and (
+                len(pending) >= MAX_BATCH_FILES
+                or pending_chars + path_chars > MAX_BATCH_ARGUMENT_CHARS
+            ):
+                self._scan_batch(base_argv, pending, summary, cancel_event)
+                pending = []
+                pending_chars = 0
+                if summary.cancelled:
+                    break
+            pending.append(item)
+            pending_chars += path_chars
+
+        if pending:
+            if cancel_event and cancel_event.is_set():
+                summary.files_cancelled += len(pending)
+                summary.cancelled = True
+            elif not summary.cancelled:
+                self._scan_batch(base_argv, pending, summary, cancel_event)
+
+        if cancel_event and cancel_event.is_set():
+            summary.cancelled = True
+        summary.completed_at = utc_now_iso()
+        if summary.files_reconciled != summary.files_enumerated:
+            summary.errors.append(
+                "Internal scan accounting did not reconcile every enumerated item."
+            )
+        return summary
+
+    def _scan_batch(
+        self,
+        base_argv: list[str],
+        batch: list[ScanItem],
+        summary: ScanSummary,
+        cancel_event: threading.Event | None,
+    ) -> None:
+        result = run_command(
+            [*base_argv, *(str(item.path) for item in batch)],
+            cancel_event=cancel_event,
+        )
+        partial = parse_clamscan_output(
+            result.output,
+            root=Path(summary.root),
+            started_at=summary.started_at,
             exit_code=result.returncode,
             cancelled=result.cancelled,
             timed_out=result.timed_out,
             engine_version=self.engine_version,
         )
+        scanned = min(partial.files_scanned, len(batch))
+        summary.files_scanned += scanned
+        summary.bytes_scanned += sum(item.size for item in batch[:scanned])
+        summary.findings.extend(partial.findings)
+        summary.errors.extend(partial.errors)
+        unaccounted = len(batch) - scanned
+        if result.cancelled:
+            summary.cancelled = True
+            summary.files_cancelled += unaccounted
+        elif unaccounted:
+            summary.files_failed += unaccounted
+            if not partial.errors:
+                summary.errors.append(
+                    f"ClamAV did not report a terminal result for {unaccounted} file(s)."
+                )
+        if result.returncode not in (0, 1):
+            summary.exit_code = result.returncode
+        elif summary.exit_code in (0, 1):
+            summary.exit_code = max(summary.exit_code or 0, result.returncode)
+
+
+def stream_scan_items(root: Path) -> Iterator[ScanItem]:
+    """Yield terminal pre-scan outcomes and regular files using bounded traversal."""
+
+    if root.is_file():
+        yield _classify_path(root)
+        return
+
+    iterators: list[os.ScandirIterator[str]] = []
+    try:
+        try:
+            iterators.append(os.scandir(root))
+        except OSError as exc:
+            yield ScanItem("failed", root, detail=f"Cannot enumerate directory: {exc}")
+            return
+
+        while iterators:
+            try:
+                entry = next(iterators[-1])
+            except StopIteration:
+                iterators.pop().close()
+                continue
+            except OSError as exc:
+                yield ScanItem("failed", root, detail=f"Directory enumeration failed: {exc}")
+                iterators.pop().close()
+                continue
+
+            path = Path(entry.path)
+            try:
+                if entry.is_symlink():
+                    yield ScanItem("skipped", path, detail="Symbolic links are not followed.")
+                    continue
+                metadata = entry.stat(follow_symlinks=False)
+                if stat.S_ISDIR(metadata.st_mode):
+                    try:
+                        iterators.append(os.scandir(path))
+                    except OSError as exc:
+                        yield ScanItem(
+                            "failed", path, detail=f"Cannot enumerate directory: {exc}"
+                        )
+                    continue
+                if not stat.S_ISREG(metadata.st_mode):
+                    yield ScanItem("skipped", path, detail="Not a regular file.")
+                    continue
+                yield _classify_path(path, size=metadata.st_size)
+            except OSError as exc:
+                yield ScanItem("failed", path, detail=f"Cannot inspect path: {exc}")
+    finally:
+        for iterator in iterators:
+            iterator.close()
+
+
+def _classify_path(path: Path, *, size: int | None = None) -> ScanItem:
+    if "\n" in str(path) or "\r" in str(path):
+        return ScanItem("failed", path, detail="Newline-containing paths are unsupported.")
+    try:
+        file_size = path.stat().st_size if size is None else size
+    except OSError as exc:
+        return ScanItem("failed", path, detail=f"Cannot read file metadata: {exc}")
+    if file_size > MAX_FILE_SIZE_BYTES:
+        return ScanItem("oversized", path, size=file_size, detail="Exceeds the 100 MiB limit.")
+    if not os.access(path, os.R_OK):
+        return ScanItem("failed", path, size=file_size, detail="File is not readable.")
+    return ScanItem("candidate", path, size=file_size)
 
 
 def validate_scan_target(value: Path | str) -> Path:

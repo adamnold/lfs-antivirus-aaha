@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import os
+import hashlib
+import json
 import signal
 import stat
 import subprocess
+import sys
 import threading
 import time
 from dataclasses import dataclass
@@ -13,6 +16,7 @@ from pathlib import Path
 from typing import Sequence
 
 from .models import utc_now_iso
+from .platform_support import packaged_engine_paths
 
 
 @dataclass(frozen=True)
@@ -30,6 +34,10 @@ class ClamAvInstallation:
     clamscan_version: str
     freshclam_version: str
     validated_at: str
+    provider: str = "user-selected"
+    provenance: str = "version-and-path"
+    clamscan_sha256: str = ""
+    freshclam_sha256: str = ""
 
 
 def run_command(
@@ -108,13 +116,36 @@ def validate_installation(
     freshclam_path: Path | str,
     *,
     cancel_event: threading.Event | None = None,
+    provider: str = "user-selected",
+    manifest_path: Path | None = None,
+    allow_links: bool = False,
 ) -> ClamAvInstallation:
     """Validate exact executable paths from one ClamAV installation directory."""
 
-    clamscan = _validate_executable(clamscan_path, "clamscan.exe")
-    freshclam = _validate_executable(freshclam_path, "freshclam.exe")
+    clamscan = _validate_executable(
+        clamscan_path, ("clamscan.exe", "clamscan"), allow_links=allow_links
+    )
+    freshclam = _validate_executable(
+        freshclam_path, ("freshclam.exe", "freshclam"), allow_links=allow_links
+    )
     if os.path.normcase(str(clamscan.parent)) != os.path.normcase(str(freshclam.parent)):
-        raise ValueError("clamscan.exe and freshclam.exe must be in the same directory.")
+        raise ValueError("clamscan and freshclam must be in the same directory.")
+
+    clamscan_hash = sha256_file(clamscan)
+    freshclam_hash = sha256_file(freshclam)
+    provenance = "version-and-exact-path"
+    effective_manifest = manifest_path or _runtime_manifest_path(clamscan, provider)
+    if effective_manifest is not None:
+        _verify_engine_manifest(
+            effective_manifest,
+            clamscan_sha256=clamscan_hash,
+            freshclam_sha256=freshclam_hash,
+        )
+        provenance = f"sha256-manifest:{effective_manifest.name}"
+    elif provider == "bundled" or (os.name == "nt" and getattr(sys, "frozen", False)):
+        raise RuntimeError("The packaged ClamAV provenance manifest is missing.")
+    elif provider == "system":
+        provenance = "system-package-and-version"
 
     scan_version = run_command(
         [str(clamscan), "--version"], cancel_event=cancel_event, timeout=15
@@ -143,11 +174,19 @@ def validate_installation(
         clamscan_version=scan_text,
         freshclam_version=fresh_text,
         validated_at=utc_now_iso(),
+        provider=provider,
+        provenance=provenance,
+        clamscan_sha256=clamscan_hash,
+        freshclam_sha256=freshclam_hash,
     )
 
 
 def suggested_installation() -> tuple[Path, Path] | None:
-    """Return a standard Windows installation pair without consulting PATH."""
+    """Return a package-managed pair or a standard Windows installation pair."""
+
+    managed = packaged_engine_paths()
+    if managed:
+        return managed[0], managed[1]
 
     roots: list[Path] = []
     for variable in ("ProgramFiles", "ProgramFiles(x86)"):
@@ -159,8 +198,8 @@ def suggested_installation() -> tuple[Path, Path] | None:
         clamscan = parent / "clamscan.exe"
         freshclam = parent / "freshclam.exe"
         try:
-            clamscan = _validate_executable(clamscan, "clamscan.exe")
-            freshclam = _validate_executable(freshclam, "freshclam.exe")
+            clamscan = _validate_executable(clamscan, ("clamscan.exe",))
+            freshclam = _validate_executable(freshclam, ("freshclam.exe",))
         except ValueError:
             continue
         if os.path.normcase(str(clamscan.parent)) == os.path.normcase(
@@ -170,15 +209,78 @@ def suggested_installation() -> tuple[Path, Path] | None:
     return None
 
 
-def _validate_executable(value: Path | str, expected_name: str) -> Path:
+def _validate_executable(
+    value: Path | str,
+    expected_names: tuple[str, ...],
+    *,
+    allow_links: bool = False,
+) -> Path:
     path = Path(value).expanduser()
     if not path.is_absolute():
-        raise ValueError(f"Choose an absolute path to {expected_name}.")
-    if path.name.casefold() != expected_name.casefold():
-        raise ValueError(f"The selected file must be named {expected_name}.")
-    resolved = resolve_local_path(path, expected_name)
+        raise ValueError(f"Choose an absolute path to {expected_names[0]}.")
+    if path.name.casefold() not in {item.casefold() for item in expected_names}:
+        raise ValueError(f"The selected file must be named {expected_names[0]}.")
+    resolved = (
+        _resolve_existing_path_allowing_links(path, expected_names[0])
+        if allow_links
+        else resolve_local_path(path, expected_names[0])
+    )
     if not resolved.is_file():
-        raise ValueError(f"The selected {expected_name} path is not a file.")
+        raise ValueError(f"The selected {expected_names[0]} path is not a file.")
+    return resolved
+
+
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _runtime_manifest_path(clamscan: Path, provider: str) -> Path | None:
+    explicit = os.environ.get("AAHA_CLAMAV_MANIFEST")
+    if explicit:
+        return Path(explicit).expanduser().resolve()
+    if provider == "bundled":
+        candidate = clamscan.parent.parent / "manifest.json"
+        return candidate if candidate.is_file() else None
+    if os.name == "nt" and getattr(sys, "frozen", False):
+        root = Path(getattr(sys, "_MEIPASS", Path(sys.executable).parent))
+        candidate = root / "windows-clamav-manifest.json"
+        return candidate if candidate.is_file() else None
+    return None
+
+
+def _verify_engine_manifest(
+    path: Path,
+    *,
+    clamscan_sha256: str,
+    freshclam_sha256: str,
+) -> None:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise RuntimeError(f"Cannot read the ClamAV provenance manifest: {exc}") from exc
+    if not isinstance(value, dict):
+        raise RuntimeError("The ClamAV provenance manifest must be an object.")
+    expected_scan = str(value.get("clamscan_sha256", "")).casefold()
+    expected_fresh = str(value.get("freshclam_sha256", "")).casefold()
+    if len(expected_scan) != 64 or len(expected_fresh) != 64:
+        raise RuntimeError("The ClamAV provenance manifest has invalid executable hashes.")
+    if expected_scan != clamscan_sha256 or expected_fresh != freshclam_sha256:
+        raise RuntimeError("The ClamAV executable hashes do not match the packaged manifest.")
+
+
+def _resolve_existing_path_allowing_links(path: Path, label: str) -> Path:
+    if _is_unc_path(path) or path_is_remote(path):
+        raise ValueError(f"Mapped and UNC network paths are not accepted for {label}.")
+    try:
+        resolved = path.resolve(strict=True)
+    except OSError as exc:
+        raise ValueError(f"Cannot resolve {label}: {exc}") from exc
+    if _is_unc_path(resolved) or path_is_remote(resolved):
+        raise ValueError(f"Mapped and UNC network paths are not accepted for {label}.")
     return resolved
 
 

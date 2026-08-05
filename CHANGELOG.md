@@ -1,10 +1,39 @@
 # Changelog
 
-Last Updated: 2026-07-29
+Last Updated: 2026-08-05
 
 This file records user-visible and project-level changes to Local-First
 Antivirus. The AAHA application program advances public source versions by
 minor version rather than patch-only releases.
+
+## [0.4.0-beta.1] - 2026-08-05
+
+### Added
+
+- AppImage and direct Flatpak x86-64 packages with pinned ClamAV 1.5.3.
+- Native Fedora RPM/SRPM and shared COPR configuration using system ClamAV.
+- Platform/runtime provider isolation, XDG state paths, and Flatpak portal selection.
+- SHA-256 engine provenance manifests, pinned package/source hashes, GPLv2 text,
+  corresponding source, and an automated Linux licensing-compliance gate.
+- Bounded streaming traversal and terminal accounting for scanned, skipped,
+  oversized, failed, and cancelled items.
+- Isolated future Technology Biased LLC Artifact Signing integration.
+
+### Changed
+
+- Windows release packaging now embeds supported ClamAV executable hashes derived
+  from the verified upstream installer and fails closed without its manifest.
+- Managed AppImage/Flatpak engines are automatic; RPM resolves Fedora system ClamAV.
+- FreshClam keeps staged validation, atomic activation, recovery, and rollback on
+  every supported package type.
+- User-visible limitations replace inert or unavailable controls.
+
+### Release gates
+
+- Added AppImage/Flatpak/RPM build, checksum, startup, update/removal, and state
+  preservation workflows.
+- Physical ordinary-user Windows 10/11, signed-artifact, and independent review
+  gates remain external.
 
 ## [0.3.0-beta.1] - 2026-07-29
 

@@ -1,34 +1,27 @@
-# Local-First Antivirus v0.3 Beta 1
+# Local-First Antivirus v0.4 Beta 1
 
-Last Updated: 2026-07-29
+Last Updated: 2026-08-05
 
-This is the first packaged AAHA Local-First Antivirus beta and remains an
-on-demand scanner interface, not complete endpoint protection.
+This prerelease expands the read-only ClamAV interface to Linux and adds bounded,
+per-item scan accounting. It is not endpoint protection.
 
-## What is included
+## Included
 
-- A Windows x64 per-user installer that requires no separate Python installation.
-- Exact-path integration with a separately installed ClamAV command-line engine.
-- Read-only local scans, user-triggered official FreshClam definition updates,
-  failure-safe database activation/recovery, and read-only display of preserved
-  legacy quarantine records.
+- Windows x64 per-user installer using verified external ClamAV hashes
+- AppImage/Flatpak x86-64 with pinned, hash-verified ClamAV 1.5.3
+- Fedora x86-64 RPM/SRPM and shared-COPR-ready package using system ClamAV
+- Bounded streaming traversal and explicit scanned/skipped/oversized/failed/
+  cancelled accounting
+- Staged, validated, atomic FreshClam update activation with rollback
+- Package startup/lifecycle, dependency, checksum, and GPL compliance gates
 
-## Required external software
+## Limits and external gates
 
-Install ClamAV separately from its official distribution. Release verification
-uses ClamAV 1.5.3 x64. ClamAV and its definitions are not bundled in this
-release.
+- No quarantine, restore, delete, real-time protection, service, scheduling,
+  automatic remediation, Defender replacement, or application auto-update
+- Flatpak scans only user-selected portal paths; no Flathub submission
+- Windows artifacts are unsigned pending Technology Biased LLC Artifact Signing
+- Physical Windows 10/11 acceptance and independent security review remain pending
 
-## Important limitations
-
-- The installer and application executable are not code-signed. Windows may
-  show Unknown Publisher or SmartScreen warnings; verify `SHA256SUMS` before use.
-- Keep Microsoft Defender or another supported security product enabled.
-- There is no real-time protection, service, scheduling, automatic remediation,
-  Security Center integration, app self-update, or active quarantine workflow.
-- Archive expansion and network/link-indirected scan targets remain disabled.
-- Scan completeness and resource limits ultimately depend on ClamAV; review any
-  displayed scan errors before treating a result as complete.
-
-Uninstall removes the program and shortcuts but deliberately preserves local
-settings, logs, definitions, backups, and legacy quarantine state.
+Keep another supported endpoint-security product enabled. Review incomplete scan
+categories and verify artifact checksums before use.

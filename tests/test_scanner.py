@@ -5,7 +5,12 @@ from pathlib import Path
 from unittest.mock import patch
 
 from lfs_antivirus_aaha.engine import ProcessResult
-from lfs_antivirus_aaha.scanner import ClamAvScanner, parse_clamscan_output, validate_scan_target
+from lfs_antivirus_aaha.scanner import (
+    MAX_FILE_SIZE_BYTES,
+    ClamAvScanner,
+    parse_clamscan_output,
+    validate_scan_target,
+)
 
 
 class ScannerTests(unittest.TestCase):
@@ -90,26 +95,30 @@ Infected files: 1
             root = Path(temp)
             target = root / "folder;not-a-command"
             target.mkdir()
+            sample = target / "sample.txt"
+            sample.write_text("fixture", encoding="utf-8")
             database = root / "database"
             database.mkdir()
             (database / "main.cvd").write_bytes(b"fixture")
             (database / "daily.cvd").write_bytes(b"fixture")
             engine_path = Path("C:/ClamAV/clamscan.exe")
             scanner = ClamAvScanner(engine_path, database, "ClamAV 1.5.3")
-            fixture = ProcessResult(0, "Scanned files: 0\nInfected files: 0\n")
+            fixture = ProcessResult(0, "Scanned files: 1\nInfected files: 0\n")
 
             with patch("lfs_antivirus_aaha.scanner.run_command", return_value=fixture) as mocked:
                 summary = scanner.scan_path(target)
 
             argv = mocked.call_args.args[0]
             self.assertEqual(argv[0], str(engine_path))
-            self.assertEqual(argv[-1], str(target.resolve()))
-            self.assertIn("--recursive=yes", argv)
+            self.assertEqual(argv[-1], str(sample.resolve()))
             self.assertIn("--follow-dir-symlinks=0", argv)
             self.assertIn("--follow-file-symlinks=0", argv)
+            self.assertIn("--max-filesize=100M", argv)
             self.assertNotIn("--remove", argv)
             self.assertFalse(any(item.startswith("--move") or item.startswith("--copy") for item in argv))
-            self.assertEqual(summary.files_scanned, 0)
+            self.assertEqual(summary.files_enumerated, 1)
+            self.assertEqual(summary.files_scanned, 1)
+            self.assertEqual(summary.files_reconciled, 1)
             self.assertEqual(summary.errors, [])
 
     def test_network_and_application_data_targets_are_rejected(self) -> None:
@@ -122,6 +131,36 @@ Infected files: 1
         protected.mkdir(parents=True)
         with self.assertRaisesRegex(ValueError, "application-data"):
             validate_scan_target(protected)
+
+    def test_streaming_scan_reconciles_scanned_skipped_and_oversized_items(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            target = root / "target"
+            target.mkdir()
+            (target / "clean.txt").write_text("clean", encoding="utf-8")
+            oversized = target / "oversized.bin"
+            with oversized.open("wb") as handle:
+                handle.truncate(MAX_FILE_SIZE_BYTES + 1)
+            link = target / "link"
+            try:
+                link.symlink_to(target / "clean.txt")
+            except OSError:
+                self.skipTest("symlink creation is unavailable")
+            database = root / "database"
+            database.mkdir()
+            (database / "main.cvd").write_bytes(b"fixture")
+            (database / "daily.cvd").write_bytes(b"fixture")
+            scanner = ClamAvScanner(Path("/opt/clamav/clamscan"), database, "ClamAV")
+            fixture = ProcessResult(0, "Scanned files: 1\nInfected files: 0\n")
+            with patch("lfs_antivirus_aaha.scanner.run_command", return_value=fixture):
+                summary = scanner.scan_path(target)
+
+            self.assertEqual(summary.files_enumerated, 3)
+            self.assertEqual(summary.files_scanned, 1)
+            self.assertEqual(summary.files_skipped, 1)
+            self.assertEqual(summary.files_oversized, 1)
+            self.assertEqual(summary.files_reconciled, 3)
+            self.assertEqual(summary.errors, [])
 
     def test_selected_symlink_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

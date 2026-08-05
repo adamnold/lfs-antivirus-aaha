@@ -1,4 +1,5 @@
 import os
+import json
 import subprocess
 import tempfile
 import threading
@@ -54,6 +55,43 @@ class EngineTests(unittest.TestCase):
                     ),
                 ],
             )
+
+    def test_bundled_engine_requires_and_matches_sha256_manifest(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "clamav"
+            binary = root / "bin"
+            binary.mkdir(parents=True)
+            clamscan = binary / "clamscan"
+            freshclam = binary / "freshclam"
+            clamscan.write_bytes(b"clamscan fixture")
+            freshclam.write_bytes(b"freshclam fixture")
+            import hashlib
+
+            (root / "manifest.json").write_text(
+                json.dumps(
+                    {
+                        "clamscan_sha256": hashlib.sha256(clamscan.read_bytes()).hexdigest(),
+                        "freshclam_sha256": hashlib.sha256(freshclam.read_bytes()).hexdigest(),
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with patch(
+                "lfs_antivirus_aaha.engine.run_command",
+                side_effect=(
+                    ProcessResult(0, "ClamAV 1.5.3\n"),
+                    ProcessResult(0, "Clam AntiVirus: Database Updater 1.5.3\n"),
+                ),
+            ):
+                installation = validate_installation(
+                    clamscan, freshclam, provider="bundled"
+                )
+            self.assertEqual(installation.provider, "bundled")
+            self.assertTrue(installation.provenance.startswith("sha256-manifest:"))
+
+            clamscan.write_bytes(b"tampered")
+            with self.assertRaisesRegex(RuntimeError, "do not match"):
+                validate_installation(clamscan, freshclam, provider="bundled")
 
     def test_cancelled_validation_does_not_start_second_executable(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

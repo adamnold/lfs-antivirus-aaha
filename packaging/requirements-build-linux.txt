@@ -1,0 +1,7 @@
+# Exact Linux payload build environment for Local-First Antivirus v0.4.0-beta.1.
+altgraph==0.17.5
+dbus-next==0.2.3
+packaging==26.2
+pyinstaller==6.21.0
+pyinstaller-hooks-contrib==2026.6
+setuptools==83.0.0

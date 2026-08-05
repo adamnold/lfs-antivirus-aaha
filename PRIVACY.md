@@ -1,71 +1,35 @@
 # Privacy
 
-Last Updated: 2026-07-29
+Last Updated: 2026-08-05
 
-Local-First Antivirus keeps application state and scanning activity on the
-computer where it runs. This statement describes the public `0.3.0-beta.1`
-source and packaged Windows x64 prerelease.
+Local-First Antivirus `0.4.0-beta.1` processes selected scan targets on the
+device. It has no AAHA telemetry, analytics, advertising, cloud account, remote
+scan service, or automatic application update.
 
-## Local processing
+## Local processing and state
 
-When the user starts a scan, the separately installed `clamscan.exe` process may
-read the selected local file or folder and produce local output containing file
-paths, ClamAV signature names, counts, and errors. Local-First Antivirus parses
-that output in memory and records bounded activity summaries in its local log.
-It does not upload scan targets or results.
+The selected ClamAV provider reads only the file/folder paths included in a
+user-requested scan. The application parses local output containing paths,
+signature names, counts, and errors, and stores bounded local activity summaries.
+It does not upload scan content, paths, hashes, findings, settings, or logs.
 
-The application stores exact validated ClamAV executable paths, display
-preferences, the last accepted-scan timestamp, a bounded last-attempt outcome
-(counts or a truncated local error that can include a path), official ClamAV
-database files, local logs, and any preserved legacy quarantine records/payloads
-in the active application-data directory. A minimal FreshClam configuration is
-created only for an active user-requested update and removed when that attempt
-ends.
+Definitions, the prior working definition backup, settings, logs, and preserved
+legacy quarantine records remain in OS-managed application-data locations.
+Windows uses `%LOCALAPPDATA%\AAHA\lfs-antivirus-aaha` (or a pre-existing
+legacy-only `%LOCALAPPDATA%\LocalShieldAV`). Linux follows XDG data, config, and
+state paths. Package upgrade/removal does not intentionally delete user state.
 
-New installations use:
+Scanning does not modify targets. Quarantine, restore, and deletion actions are
+absent. Definition updates write only within application state, stage and verify
+a candidate, then atomically activate or recover/roll back it.
 
-```text
-%LOCALAPPDATA%\AAHA\lfs-antivirus-aaha
-```
+## Network and package boundaries
 
-An existing legacy-only installation continues to use:
+Network access occurs only when the user selects **Update Definitions**.
+FreshClam then contacts its configured official ClamAV database mirror, which
+receives ordinary request metadata. AAHA does not receive that traffic.
 
-```text
-%LOCALAPPDATA%\LocalShieldAV
-```
-
-The application does not automatically migrate or delete either location.
-The installer writes program files under
-`%LOCALAPPDATA%\Programs\AAHA\lfs-antivirus-aaha`. Upgrade and uninstall do not
-remove the application-data locations above.
-
-## Network behavior
-
-The application has no telemetry, analytics, advertising, cloud account,
-remote scan service, or automatic application update.
-
-Network access occurs only after the user selects **Update Definitions**. The
-external `freshclam.exe` process may then contact ClamAV's configured official
-database mirror and expose ordinary network metadata such as the source IP,
-request time, requested database versions, and FreshClam user agent. AAHA does
-not receive that traffic or add a second update request.
-
-## File changes
-
-Scanning is read-only. Definition updates write only within the active AAHA
-application-data directory. A candidate database is staged and validated before
-activation. Cancellation before the commit barrier does not replace the active
-database. Once the short directory-commit phase begins it is deliberately not
-interruptible; it completes or is recovered at the next start.
-
-The earlier quarantine, restore, and delete implementations are not available
-through this prerelease. Existing payloads and record files remain untouched
-and are displayed read-only for later recovery work.
-
-## External software boundary
-
-ClamAV is separately installed software with its own behavior, security model,
-configuration, update infrastructure, and privacy documentation. Local-First
-Antivirus validates and invokes the exact paths the user selected; it does not
-bundle, modify, or monitor ClamAV outside a user-requested scan or definition
-update.
+AppImage and RPM can access selected paths readable by the user. Flatpak has no
+broad host filesystem permission; the desktop file chooser portal grants only
+explicitly selected files/folders. Bundled ClamAV is a separate GPLv2 component
+with its own behavior and update service.

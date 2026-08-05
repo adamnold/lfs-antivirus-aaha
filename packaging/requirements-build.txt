@@ -1,4 +1,4 @@
-# Exact Windows packaging environment for Local-First Antivirus v0.3.0-beta.1.
+# Exact Windows packaging environment for Local-First Antivirus v0.4.0-beta.1.
 # Install with --no-deps so an unreviewed transitive version cannot enter a build.
 altgraph==0.17.5
 packaging==26.2

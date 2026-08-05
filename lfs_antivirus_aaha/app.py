@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import json
 import queue
 import sys
 import threading
@@ -19,6 +20,12 @@ from lfs_antivirus_aaha.engine import (
 )
 from lfs_antivirus_aaha.logger import append_log, read_log_tail
 from lfs_antivirus_aaha.models import ScanFinding, ScanSummary, utc_now_iso
+from lfs_antivirus_aaha.platform_support import (
+    packaged_engine_paths,
+    reveal_path,
+    runtime_context,
+)
+from lfs_antivirus_aaha.portal import choose_portal_path
 from lfs_antivirus_aaha.quarantine import list_records_with_errors
 from lfs_antivirus_aaha.scanner import ClamAvScanner, validate_scan_target
 from lfs_antivirus_aaha.storage import (
@@ -50,12 +57,14 @@ def scan_summary_is_accepted(summary: ScanSummary) -> bool:
         not summary.cancelled
         and not summary.errors
         and summary.exit_code in (0, 1)
+        and summary.files_reconciled == summary.files_enumerated
     )
 
 
 class LocalFirstAntivirusApp(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
+        self.runtime = runtime_context()
         ensure_app_dirs()
         self.startup_recovery_note: str | None = None
         self.startup_recovery_error: Exception | None = None
@@ -89,6 +98,12 @@ class LocalFirstAntivirusApp(tk.Tk):
         self.clamscan_path_var.trace_add("write", self._engine_paths_changed)
         self.freshclam_path_var.trace_add("write", self._engine_paths_changed)
         self._refresh_all()
+        if (
+            self.runtime.managed_engine
+            and "--smoke-test" not in sys.argv
+            and self._engine_path_key() != ("", "")
+        ):
+            self.after(0, self._validate_engine)
         self.after(100, self._poll_events)
         self.protocol("WM_DELETE_WINDOW", self._on_close)
         append_log(f"Application started. Version {__version__}; engine not yet validated.")
@@ -110,7 +125,9 @@ class LocalFirstAntivirusApp(tk.Tk):
         default_scan = home / "Downloads" if (home / "Downloads").exists() else home
         saved_theme = str(self.settings.get("theme", "Default"))
         self.theme_var = tk.StringVar(value=saved_theme if saved_theme in THEMES else "Default")
-        self.scan_path_var = tk.StringVar(value=str(default_scan))
+        self.scan_path_var = tk.StringVar(
+            value="" if self.runtime.uses_portal_picker else str(default_scan)
+        )
         self.clamscan_path_var = tk.StringVar(value=str(self.settings.get("clamscan_path", "")))
         self.freshclam_path_var = tk.StringVar(value=str(self.settings.get("freshclam_path", "")))
         self.status_var = tk.StringVar(value="Engine setup required")
@@ -160,8 +177,13 @@ class LocalFirstAntivirusApp(tk.Tk):
         ttk.Label(
             root,
             text=(
-                "Beta · On-demand scanning only · Requires a separately installed ClamAV engine · "
-                "Not a replacement for Microsoft Defender or another supported security product"
+                "Beta · On-demand scanning only · "
+                + (
+                    "Uses a verified package-managed ClamAV engine · "
+                    if self.runtime.managed_engine
+                    else "Requires a separately installed ClamAV engine · "
+                )
+                + "Not a replacement for Microsoft Defender or another supported security product"
             ),
             style="Banner.TLabel",
             wraplength=1040,
@@ -293,23 +315,28 @@ class LocalFirstAntivirusApp(tk.Tk):
         ttk.Label(buttons, textvariable=self.legacy_count_var, style="Muted.TLabel").pack(side=tk.RIGHT)
 
     def _build_engine_tab(self) -> None:
-        boundary = ttk.LabelFrame(self.engine_tab, text="External ClamAV installation", padding=10)
+        boundary = ttk.LabelFrame(self.engine_tab, text="ClamAV engine boundary", padding=10)
         boundary.pack(fill=tk.X)
         boundary.columnconfigure(1, weight=1)
         ttk.Label(
             boundary,
             text=(
-                "Install ClamAV separately from its official distribution, then select both executables below. "
-                "AAHA does not bundle or modify ClamAV and never searches PATH or invokes a command shell."
+                "Linux AppImage and Flatpak releases carry a pinned ClamAV command-line runtime; RPM uses "
+                "Fedora's ClamAV packages. Windows uses exact user-selected official paths. AAHA invokes fixed "
+                "argument lists without a command shell and validates package provenance where available."
             ),
             wraplength=980,
         ).grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, 10))
-        ttk.Label(boundary, text="clamscan.exe").grid(row=1, column=0, sticky="w", padx=(0, 8), pady=4)
-        ttk.Entry(boundary, textvariable=self.clamscan_path_var).grid(row=1, column=1, sticky="ew", pady=4)
-        ttk.Button(boundary, text="Browse", command=self._browse_clamscan).grid(row=1, column=2, padx=(8, 0), pady=4)
-        ttk.Label(boundary, text="freshclam.exe").grid(row=2, column=0, sticky="w", padx=(0, 8), pady=4)
-        ttk.Entry(boundary, textvariable=self.freshclam_path_var).grid(row=2, column=1, sticky="ew", pady=4)
-        ttk.Button(boundary, text="Browse", command=self._browse_freshclam).grid(row=2, column=2, padx=(8, 0), pady=4)
+        ttk.Label(boundary, text="clamscan").grid(row=1, column=0, sticky="w", padx=(0, 8), pady=4)
+        self.clamscan_entry = ttk.Entry(boundary, textvariable=self.clamscan_path_var)
+        self.clamscan_entry.grid(row=1, column=1, sticky="ew", pady=4)
+        self.clamscan_browse_button = ttk.Button(boundary, text="Browse", command=self._browse_clamscan)
+        self.clamscan_browse_button.grid(row=1, column=2, padx=(8, 0), pady=4)
+        ttk.Label(boundary, text="freshclam").grid(row=2, column=0, sticky="w", padx=(0, 8), pady=4)
+        self.freshclam_entry = ttk.Entry(boundary, textvariable=self.freshclam_path_var)
+        self.freshclam_entry.grid(row=2, column=1, sticky="ew", pady=4)
+        self.freshclam_browse_button = ttk.Button(boundary, text="Browse", command=self._browse_freshclam)
+        self.freshclam_browse_button.grid(row=2, column=2, padx=(8, 0), pady=4)
         self.validate_button = ttk.Button(boundary, text="Validate Exact Paths", command=self._validate_engine)
         self.validate_button.grid(row=3, column=1, sticky="w", pady=(10, 0))
 
@@ -320,7 +347,7 @@ class LocalFirstAntivirusApp(tk.Tk):
         ttk.Label(
             definitions,
             text=(
-                "Update Definitions runs the selected freshclam.exe only when you request it. It downloads into "
+                "Update Definitions runs the validated freshclam executable only when you request it. It downloads into "
                 "AAHA's local data directory, validates the staged database, and keeps the previous database as a backup."
             ),
             style="Muted.TLabel",
@@ -350,6 +377,18 @@ class LocalFirstAntivirusApp(tk.Tk):
         self.log_text.configure(state=tk.DISABLED)
 
     def _prefill_standard_installation(self) -> None:
+        managed = packaged_engine_paths()
+        if managed:
+            self.clamscan_path_var.set(str(managed[0]))
+            self.freshclam_path_var.set(str(managed[1]))
+            for widget in (
+                self.clamscan_entry,
+                self.freshclam_entry,
+                self.clamscan_browse_button,
+                self.freshclam_browse_button,
+            ):
+                widget.configure(state=tk.DISABLED)
+            return
         if self.clamscan_path_var.get().strip() or self.freshclam_path_var.get().strip():
             return
         pair = suggested_installation()
@@ -358,14 +397,30 @@ class LocalFirstAntivirusApp(tk.Tk):
             self.freshclam_path_var.set(str(pair[1]))
 
     def _browse_scan_folder(self) -> None:
-        selected = filedialog.askdirectory(title="Choose a local folder to scan")
+        try:
+            selected = (
+                choose_portal_path(directory=True, title="Choose a local folder to scan")
+                if self.runtime.uses_portal_picker
+                else filedialog.askdirectory(title="Choose a local folder to scan")
+            )
+        except Exception as exc:
+            messagebox.showerror("File Portal", str(exc))
+            return
         if selected:
-            self.scan_path_var.set(selected)
+            self.scan_path_var.set(str(selected))
 
     def _browse_scan_file(self) -> None:
-        selected = filedialog.askopenfilename(title="Choose a local file to scan")
+        try:
+            selected = (
+                choose_portal_path(directory=False, title="Choose a local file to scan")
+                if self.runtime.uses_portal_picker
+                else filedialog.askopenfilename(title="Choose a local file to scan")
+            )
+        except Exception as exc:
+            messagebox.showerror("File Portal", str(exc))
+            return
         if selected:
-            self.scan_path_var.set(selected)
+            self.scan_path_var.set(str(selected))
 
     def _browse_clamscan(self) -> None:
         selected = filedialog.askopenfilename(title="Choose clamscan.exe", filetypes=(("ClamAV scanner", "clamscan.exe"), ("Executables", "*.exe")))
@@ -419,10 +474,18 @@ class LocalFirstAntivirusApp(tk.Tk):
 
         def run() -> None:
             try:
+                managed = packaged_engine_paths()
+                provider = "user-selected"
+                allow_links = False
+                if managed and request_paths == (str(managed[0]), str(managed[1])):
+                    provider = managed[2]
+                    allow_links = provider == "system"
                 installation = validate_installation(
                     clamscan,
                     freshclam,
                     cancel_event=self.engine_cancel_event,
+                    provider=provider,
+                    allow_links=allow_links,
                 )
                 self.events.put(
                     ("engine_complete", (token, request_paths, installation))
@@ -435,6 +498,13 @@ class LocalFirstAntivirusApp(tk.Tk):
         self._refresh_actions()
 
     def _quick_scan(self) -> None:
+        if self.runtime.uses_portal_picker:
+            self._browse_scan_folder()
+            if not self.scan_path_var.get().strip():
+                return
+            self.notebook.select(self.scan_tab)
+            self._start_scan()
+            return
         home = Path.home()
         target = home / "Downloads" if (home / "Downloads").exists() else home
         self.scan_path_var.set(str(target))
@@ -445,7 +515,7 @@ class LocalFirstAntivirusApp(tk.Tk):
         if self._closing:
             return
         if not self.engine:
-            messagebox.showerror("Engine Setup Required", "Validate a separately installed ClamAV engine first.")
+            messagebox.showerror("Engine Setup Required", "Validate the configured ClamAV engine first.")
             self.notebook.select(self.engine_tab)
             return
         if not database_status().ready:
@@ -621,14 +691,19 @@ class LocalFirstAntivirusApp(tk.Tk):
         self._stop_progress()
         state = "cancelled" if summary.cancelled else "completed"
         self.progress_text_var.set(
-            f"Scan {state}. ClamAV reported {summary.files_scanned} scanned file(s), "
-            f"{summary.threats_found} finding(s), and {len(summary.errors)} error note(s)."
+            f"Scan {state}. Enumerated {summary.files_enumerated}; scanned {summary.files_scanned}; "
+            f"skipped {summary.files_skipped}; oversized {summary.files_oversized}; "
+            f"failed {summary.files_failed}; cancelled {summary.files_cancelled}; "
+            f"findings {summary.threats_found}."
             + (" Prior accepted results were retained." if not accepted else "")
         )
         self.status_var.set("Ready")
         append_log(
             f"ClamAV scan {state}: {summary.root}; exit={summary.exit_code}; "
-            f"scanned={summary.files_scanned}; findings={summary.threats_found}; errors={len(summary.errors)}."
+            f"enumerated={summary.files_enumerated}; scanned={summary.files_scanned}; "
+            f"skipped={summary.files_skipped}; oversized={summary.files_oversized}; "
+            f"failed={summary.files_failed}; cancelled={summary.files_cancelled}; "
+            f"findings={summary.threats_found}; errors={len(summary.errors)}."
         )
         for error in summary.errors[:20]:
             append_log(f"Scan note: {error}")
@@ -734,7 +809,7 @@ class LocalFirstAntivirusApp(tk.Tk):
     def _save_settings(self, show_message: bool = True) -> None:
         saved_clamscan = str(self.settings.get("clamscan_path", ""))
         saved_freshclam = str(self.settings.get("freshclam_path", ""))
-        if self.engine:
+        if self.engine and not self.runtime.managed_engine:
             saved_clamscan = str(self.engine.clamscan_path)
             saved_freshclam = str(self.engine.freshclam_path)
         self.settings = {
@@ -763,9 +838,7 @@ class LocalFirstAntivirusApp(tk.Tk):
     def _open_data_folder(self) -> None:
         path = app_data_dir()
         path.mkdir(parents=True, exist_ok=True)
-        if hasattr(os, "startfile"):
-            os.startfile(str(path))  # type: ignore[attr-defined]
-        else:
+        if not reveal_path(path):
             messagebox.showinfo("Application Data Folder", str(path))
 
     def _refresh_all(self) -> None:
@@ -848,6 +921,30 @@ class LocalFirstAntivirusApp(tk.Tk):
 
 
 def main() -> None:
+    if "--smoke-test" in sys.argv:
+        managed = packaged_engine_paths()
+        if managed is None:
+            raise RuntimeError("The packaged ClamAV engine was not discovered.")
+        installation = validate_installation(
+            managed[0],
+            managed[1],
+            provider=managed[2],
+            allow_links=managed[2] == "system",
+        )
+        print(
+            json.dumps(
+                {
+                    "app_version": __version__,
+                    "package_kind": runtime_context().package_kind,
+                    "engine_provider": installation.provider,
+                    "clamscan_version": installation.clamscan_version,
+                    "freshclam_version": installation.freshclam_version,
+                    "provenance": installation.provenance,
+                },
+                sort_keys=True,
+            )
+        )
+        return
     app = LocalFirstAntivirusApp()
     app.mainloop()
 

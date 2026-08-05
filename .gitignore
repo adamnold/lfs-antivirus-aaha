@@ -9,8 +9,10 @@ env/
 build/
 dist/
 *.spec
+!packaging/rpm/*.spec
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
 *.log
 *.zip
+squashfs-root/

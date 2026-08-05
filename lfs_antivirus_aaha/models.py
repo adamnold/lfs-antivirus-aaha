@@ -45,8 +45,12 @@ class ScanSummary:
     started_at: str
     completed_at: str
     root: str
+    files_enumerated: int = 0
     files_scanned: int = 0
     files_skipped: int = 0
+    files_oversized: int = 0
+    files_failed: int = 0
+    files_cancelled: int = 0
     bytes_scanned: int = 0
     findings: list[ScanFinding] = field(default_factory=list)
     cancelled: bool = False
@@ -58,6 +62,16 @@ class ScanSummary:
     @property
     def threats_found(self) -> int:
         return len(self.findings)
+
+    @property
+    def files_reconciled(self) -> int:
+        return (
+            self.files_scanned
+            + self.files_skipped
+            + self.files_oversized
+            + self.files_failed
+            + self.files_cancelled
+        )
 
     def to_dict(self) -> dict[str, Any]:
         data = asdict(self)

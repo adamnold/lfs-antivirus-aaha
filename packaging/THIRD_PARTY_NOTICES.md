@@ -1,19 +1,26 @@
 # Packaged Runtime Notices
 
-Last Updated: 2026-07-29
+Last Updated: 2026-08-05
 
-Local-First Antivirus source is licensed under the repository's MIT License.
-The Windows installer contains an embedded Python runtime and Tcl/Tk components
-needed to run the AAHA application without a separate Python installation. Their
-license texts are copied from the exact Python build into the installed
-`licenses` directory during packaging.
+AAHA application source is MIT-licensed. Runtime components keep their own
+licenses and are not represented as AAHA or endorsers.
 
-PyInstaller is used only as the build tool. Its GPLv2 exception permits the
-generated executable bundle to be distributed under the application's license;
-PyInstaller is not represented as part of AAHA. Inno Setup is used to compile
-the per-user Windows installer. Neither project endorses Local-First Antivirus.
+## ClamAV
 
-ClamAV is not contained in the executable or installer. It is separately
-installed, separately licensed GPLv2 software selected by the user. The ClamAV
-name describes interoperability only; AAHA is not affiliated with or endorsed
-by Cisco Talos, Cisco Systems, or the ClamAV project.
+AppImage and Flatpak artifacts aggregate the official ClamAV 1.5.3 Linux x86-64
+command-line distribution as separate executables under GPLv2; AAHA does not
+link `libclamav`. The payload contains `licenses/ClamAV-GPL-2.0-only.txt` and a
+SHA-256 provenance manifest. The release includes
+`ClamAV-1.5.3-Corresponding-Source.tar.gz` as the corresponding source, pinned to
+the exact source hash in that manifest. RPM and Windows packages do not bundle
+ClamAV: RPM uses Fedora packages and Windows uses a verified separate install.
+
+## Other packaged runtimes
+
+Windows embeds Python and Tcl/Tk; their license texts are copied into the
+installed `licenses` directory. Linux AppImage/Flatpak embed a PyInstaller-built
+Python/Tk runtime. The Linux payload includes the available Python and Tcl/Tk
+runtime license evidence plus its pinned Python build requirements. PyInstaller's
+bootloader exception permits distribution of the generated application under
+its own license. Inno Setup, AppImage tooling, Flatpak Builder, and RPM tooling
+are build/package tools and do not endorse the application.
