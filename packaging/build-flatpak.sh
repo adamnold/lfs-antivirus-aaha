@@ -17,7 +17,10 @@ rm -rf "$build_directory" "$repository"
 rm -f "$release" "$release.sha256"
 mkdir -p "$repo_root/dist/release"
 if flatpak info --user org.flatpak.Builder >/dev/null 2>&1; then
-    flatpak run org.flatpak.Builder --user --force-clean --repo="$repository" --default-branch=beta "$build_directory" "$manifest"
+    # Older Flatpak hosts do not always expand the Builder app's
+    # xdg-data/flatpak grant to the user installation. Mount the exact user
+    # installation so the pinned SDK remains visible inside the Builder.
+    flatpak run --filesystem="$HOME/.local/share/flatpak" org.flatpak.Builder --user --force-clean --repo="$repository" --default-branch=beta "$build_directory" "$manifest"
 elif command -v "$builder" >/dev/null 2>&1; then
     "$builder" --user --force-clean --repo="$repository" --default-branch=beta "$build_directory" "$manifest"
 else
