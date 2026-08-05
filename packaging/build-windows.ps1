@@ -48,7 +48,7 @@ if ($LASTEXITCODE -ne 0 -or $actualPyInstaller -ne $expectedPyInstaller) {
 if (-not (Test-Path -LiteralPath $ClamAvManifest -PathType Leaf)) {
     throw "The verified Windows ClamAV executable manifest is required."
 }
-$signingValues = @($SignTool, $ArtifactSigningDlib, $SigningMetadata) | Where-Object { $_ }
+$signingValues = @(@($SignTool, $ArtifactSigningDlib, $SigningMetadata) | Where-Object { $_ })
 if ($signingValues.Count -notin @(0, 3)) {
     throw "SignTool, ArtifactSigningDlib, and SigningMetadata must be provided together."
 }

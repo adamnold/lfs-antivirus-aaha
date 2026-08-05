@@ -195,6 +195,7 @@ jobs:
         env:
           LOCALAPPDATA: /tmp/lfs-antivirus-aaha-tests
         run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
           python3 -m unittest discover -s tests -v
           ./packaging/build-rpm.sh
 
