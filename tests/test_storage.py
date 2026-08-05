@@ -55,6 +55,7 @@ class StorageTests(unittest.TestCase):
             self.assertNotIn("app_update_url", settings)
             self.assertNotIn("definition_source", settings)
 
+    @unittest.skipIf(os.name == "nt", "Linux XDG path contract")
     def test_linux_xdg_config_state_and_data_roots_are_separated(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
