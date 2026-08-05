@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>com.aaha.lfs-antivirus-aaha</id>
+  <name>Local-First Antivirus</name>
+  <summary>Local, on-demand scanning through ClamAV</summary>
+  <developer id="com.aaha"><name>AAHA Local-First</name></developer>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT AND GPL-2.0-only</project_license>
+  <content_rating type="oars-1.1"/>
+  <description>
+    <p>Local-First Antivirus is an on-demand scanner that keeps its settings, logs, and ClamAV definitions on the device.</p>
+    <p>It is not real-time protection and is not a replacement for a supported endpoint-security product.</p>
+  </description>
+  <launchable type="desktop-id">com.aaha.lfs-antivirus-aaha.desktop</launchable>
+  <url type="homepage">https://github.com/adamnold/lfs-antivirus-aaha</url>
+  <provides><binary>local-first-antivirus</binary></provides>
+  <releases>
+    <release version="0.4.0-beta.1" date="2026-08-05" type="development"/>
+  </releases>
+</component>

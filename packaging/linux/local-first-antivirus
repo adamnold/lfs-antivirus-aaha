@@ -1,0 +1,19 @@
+#!/bin/sh
+set -eu
+
+if [ -n "${FLATPAK_ID:-}" ]; then
+    export AAHA_CLAMAV_PROVIDER=bundled
+    export AAHA_CLAMAV_ROOT=/app/libexec/lfs-antivirus-aaha/app/clamav
+    export LD_LIBRARY_PATH="$AAHA_CLAMAV_ROOT/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+    exec "/app/libexec/lfs-antivirus-aaha/app/Local-First Antivirus" "$@"
+fi
+
+if [ -n "${APPDIR:-}" ]; then
+    export AAHA_CLAMAV_PROVIDER=bundled
+    export AAHA_CLAMAV_ROOT="$APPDIR/usr/libexec/lfs-antivirus-aaha/app/clamav"
+    export LD_LIBRARY_PATH="$AAHA_CLAMAV_ROOT/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+    exec "$APPDIR/usr/libexec/lfs-antivirus-aaha/app/Local-First Antivirus" "$@"
+fi
+
+export AAHA_CLAMAV_PROVIDER=system
+exec /usr/bin/python3 -m lfs_antivirus_aaha.app "$@"

@@ -1,8 +1,8 @@
 #define AppName "Local-First Antivirus"
-#define AppVersion "0.3.0-beta.1"
-#define AppNumericVersion "0.3.0.1"
+#define AppVersion "0.4.0-beta.1"
+#define AppNumericVersion "0.4.0.1"
 #define AppExeName "Local-First Antivirus.exe"
-#define AppPublisher "Adam And His Agents (AAHA)"
+#define AppPublisher "Technology Biased LLC"
 #define AppUrl "https://github.com/adamnold/lfs-antivirus-aaha"
 
 [Setup]
@@ -24,7 +24,7 @@ MinVersion=10.0.17763
 UninstallDisplayName={#AppName} {#AppVersion}
 UninstallDisplayIcon={app}\{#AppExeName}
 OutputDir=..\dist\installer
-OutputBaseFilename=Local-First-Antivirus-v0.3.0-beta.1-Windows-x64-Setup
+OutputBaseFilename=Local-First-Antivirus-v0.4.0-beta.1-Windows-x64-Setup
 SetupIconFile=..\assets\lfs-antivirus-aaha.ico
 LicenseFile=..\LICENSE
 InfoBeforeFile=INSTALLER_NOTICE.txt

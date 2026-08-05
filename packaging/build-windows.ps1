@@ -1,7 +1,11 @@
 [CmdletBinding()]
 param(
     [string]$Python = "python",
-    [string]$InnoCompiler = ""
+    [string]$InnoCompiler = "",
+    [Parameter(Mandatory = $true)][string]$ClamAvManifest,
+    [string]$SignTool = "",
+    [string]$ArtifactSigningDlib = "",
+    [string]$SigningMetadata = ""
 )
 
 Set-StrictMode -Version Latest
@@ -10,7 +14,7 @@ $ErrorActionPreference = "Stop"
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 Set-Location $repoRoot
 
-$expectedVersion = "0.3.0-beta.1"
+$expectedVersion = "0.4.0-beta.1"
 $expectedPyInstaller = "6.21.0"
 $appName = "Local-First Antivirus"
 $appExeName = "$appName.exe"
@@ -41,6 +45,14 @@ $actualPyInstaller = (& $Python -m PyInstaller --version).Trim()
 if ($LASTEXITCODE -ne 0 -or $actualPyInstaller -ne $expectedPyInstaller) {
     throw "Expected PyInstaller $expectedPyInstaller; received $actualPyInstaller."
 }
+if (-not (Test-Path -LiteralPath $ClamAvManifest -PathType Leaf)) {
+    throw "The verified Windows ClamAV executable manifest is required."
+}
+$signingValues = @(@($SignTool, $ArtifactSigningDlib, $SigningMetadata) | Where-Object { $_ })
+if ($signingValues.Count -notin @(0, 3)) {
+    throw "SignTool, ArtifactSigningDlib, and SigningMetadata must be provided together."
+}
+$signingEnabled = $signingValues.Count -eq 3
 
 $sourceCommit = (& git rev-parse HEAD).Trim()
 if ($LASTEXITCODE -ne 0 -or $sourceCommit -notmatch '^[0-9a-f]{40}$') {
@@ -64,6 +76,7 @@ $pyInstallerArgs = @(
     "--name", $appName,
     "--icon", (Join-Path $repoRoot "assets\lfs-antivirus-aaha.ico"),
     "--version-file", (Join-Path $repoRoot "packaging\windows-version-info.txt"),
+    "--add-data", "$ClamAvManifest;.\",
     "--distpath", $windowsRoot,
     "--workpath", (Join-Path $buildRoot "work"),
     "--specpath", (Join-Path $buildRoot "spec"),
@@ -111,6 +124,8 @@ $buildInfo = [ordered]@{
     python_version = (& $Python --version).Trim()
     pyinstaller_version = $actualPyInstaller
     clamav_bundled = $false
+    future_signer = "Technology Biased LLC"
+    signed = $signingEnabled
 }
 $buildInfoJson = $buildInfo | ConvertTo-Json -Depth 3
 [System.IO.File]::WriteAllText(
@@ -118,6 +133,14 @@ $buildInfoJson = $buildInfo | ConvertTo-Json -Depth 3
     $buildInfoJson + "`n",
     [System.Text.UTF8Encoding]::new($false)
 )
+
+if ($signingEnabled) {
+    & (Join-Path $repoRoot "packaging\sign-windows.ps1") `
+        -SignTool $SignTool `
+        -ArtifactSigningDlib $ArtifactSigningDlib `
+        -MetadataFile $SigningMetadata `
+        -Files @($appExe)
+}
 
 if (-not $InnoCompiler) {
     $innoCandidates = @(
@@ -136,6 +159,13 @@ Invoke-Checked -FilePath $InnoCompiler -Arguments @((Join-Path $repoRoot "packag
 $installers = @(Get-ChildItem -LiteralPath $installerRoot -Filter "*.exe" -File)
 if ($installers.Count -ne 1) {
     throw "Expected exactly one installer; found $($installers.Count)."
+}
+if ($signingEnabled) {
+    & (Join-Path $repoRoot "packaging\sign-windows.ps1") `
+        -SignTool $SignTool `
+        -ArtifactSigningDlib $ArtifactSigningDlib `
+        -MetadataFile $SigningMetadata `
+        -Files @($installers[0].FullName)
 }
 $releaseInstaller = Join-Path $releaseRoot $installers[0].Name
 Copy-Item -LiteralPath $installers[0].FullName -Destination $releaseInstaller

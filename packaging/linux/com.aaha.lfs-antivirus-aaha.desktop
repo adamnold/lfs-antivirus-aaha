@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Local-First Antivirus
+Comment=Local, on-demand scanning through a verified ClamAV engine
+Exec=local-first-antivirus
+Icon=com.aaha.lfs-antivirus-aaha
+Terminal=false
+Categories=System;Security;
+Keywords=antivirus;clamav;scanner;local-first;
+StartupNotify=true

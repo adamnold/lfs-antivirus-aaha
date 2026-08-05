@@ -1,6 +1,7 @@
 [CmdletBinding()]
 param(
-    [string]$Python = "python"
+    [string]$Python = "python",
+    [string]$ManifestPath = ""
 )
 
 Set-StrictMode -Version Latest
@@ -82,6 +83,29 @@ try {
     $freshclam = Join-Path $clamscanCandidates[0].Directory.FullName "freshclam.exe"
     if (-not (Test-Path -LiteralPath $freshclam -PathType Leaf)) {
         throw "freshclam.exe was not found beside clamscan.exe."
+    }
+
+    if ($ManifestPath) {
+        $manifest = [ordered]@{
+            schema_version = 1
+            provider = "Cisco Talos ClamAV official Windows release"
+            version = $clamAvVersion
+            installer = $installerName
+            installer_sha256 = $actualHash
+            clamscan_sha256 = (Get-FileHash -LiteralPath $clamscan -Algorithm SHA256).Hash.ToLowerInvariant()
+            freshclam_sha256 = (Get-FileHash -LiteralPath $freshclam -Algorithm SHA256).Hash.ToLowerInvariant()
+            clamscan_authenticode = (Get-AuthenticodeSignature -LiteralPath $clamscan).Status.ToString()
+            freshclam_authenticode = (Get-AuthenticodeSignature -LiteralPath $freshclam).Status.ToString()
+        }
+        $manifestDirectory = Split-Path -Parent $ManifestPath
+        if ($manifestDirectory) {
+            New-Item -ItemType Directory -Path $manifestDirectory -Force | Out-Null
+        }
+        [System.IO.File]::WriteAllText(
+            $ManifestPath,
+            ($manifest | ConvertTo-Json -Depth 3) + "`n",
+            [System.Text.UTF8Encoding]::new($false)
+        )
     }
 
     $env:LOCALAPPDATA = $stateRoot

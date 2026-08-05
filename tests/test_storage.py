@@ -11,6 +11,8 @@ from lfs_antivirus_aaha.storage import (
     ensure_app_dirs,
     legacy_app_data_dir,
     load_settings,
+    logs_dir,
+    settings_path,
 )
 
 
@@ -52,6 +54,32 @@ class StorageTests(unittest.TestCase):
             self.assertIn("freshclam_path", settings)
             self.assertNotIn("app_update_url", settings)
             self.assertNotIn("definition_source", settings)
+
+    @unittest.skipIf(os.name == "nt", "Linux XDG path contract")
+    def test_linux_xdg_config_state_and_data_roots_are_separated(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            with patch.dict(
+                os.environ,
+                {
+                    "LOCALAPPDATA": "",
+                    "XDG_DATA_HOME": str(root / "data"),
+                    "XDG_CONFIG_HOME": str(root / "config"),
+                    "XDG_STATE_HOME": str(root / "state"),
+                },
+            ):
+                self.assertEqual(
+                    canonical_app_data_dir(),
+                    root / "data" / "aaha" / "lfs-antivirus-aaha",
+                )
+                self.assertEqual(
+                    settings_path(),
+                    root / "config" / "aaha" / "lfs-antivirus-aaha" / "settings.json",
+                )
+                self.assertEqual(
+                    logs_dir(),
+                    root / "state" / "aaha" / "lfs-antivirus-aaha" / "logs",
+                )
 
 
 if __name__ == "__main__":

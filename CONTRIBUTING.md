@@ -1,6 +1,6 @@
 # Contributing
 
-Last Updated: 2026-07-29
+Last Updated: 2026-08-05
 
 Thank you for helping improve Local-First Antivirus and the AAHA Local-First
 Series.
@@ -29,7 +29,7 @@ normal state.
 
 ## Adapter test expectations
 
-- Use exact absolute executable paths and fixed argument-list assertions.
+- Use exact package/user executable paths, provenance manifests, and fixed argument-list assertions.
 - Verify `shell=False`; do not add `PATH` discovery or string-built commands.
 - Cover clean, infected, error, malformed/inconsistent output, timeout, and
   cancellation outcomes with synthetic fixtures.
@@ -37,7 +37,7 @@ normal state.
   last-known-good rollback without live network access.
 - Do not add `--remove`, `--move`, `--copy`, automatic quarantine, or another
   destructive ClamAV option.
-- Preserve legacy application and quarantine state unless a separately reviewed
+- Reconcile each streamed item and preserve legacy application/quarantine state unless a separately reviewed
   migration/recovery design is implemented and tested.
 
 ## Change expectations
@@ -48,15 +48,15 @@ normal state.
 - Do not describe the UI as full antivirus or endpoint protection.
 - Keep product, repository, package, local-data, and AAHA identity aligned.
 - Follow the AAHA minor-only public version rule; prerelease identifiers such as
-  `0.3.0-beta.1` may identify a beta candidate without creating a patch release.
+  `0.4.0-beta.1` may identify a beta candidate without creating a patch release.
+- Run the Linux compliance gate for any bundled ClamAV/package change.
 
 ## Pull requests
 
 Keep each pull request focused. Explain the problem, user impact, verification,
 privacy/security implications, and remaining limitations. Building or uploading
 a release artifact requires a separate explicit release workflow.
-`packaging/build-windows.ps1` uses the exact dependencies in
-`packaging/requirements-build.txt`; `packaging/verify-windows-package.ps1` must
-pass before any artifact is considered. The GitHub release-candidate workflow
-builds and verifies artifacts with read-only repository permission and never
-publishes them automatically.
+Windows and Linux builders use pinned inputs; Windows lifecycle verification and
+`packaging/verify-linux-compliance.py` must pass before artifacts are considered.
+The GitHub release-candidate workflow builds and verifies artifacts with
+read-only repository permission and never publishes them automatically.

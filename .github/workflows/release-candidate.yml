@@ -61,18 +61,19 @@ jobs:
           $process = Start-Process -FilePath $path -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART" -Wait -PassThru
           if ($process.ExitCode -ne 0) { throw "Inno Setup installation failed with exit code $($process.ExitCode)." }
 
+      - name: Verify live ClamAV and create runtime provenance manifest
+        shell: pwsh
+        run: |
+          ./packaging/verify-live-clamav.ps1 -Python python -ManifestPath "${{ runner.temp }}\windows-clamav-manifest.json"
+
       - name: Build installer and checksums
         shell: pwsh
         run: |
-          ./packaging/build-windows.ps1 -Python "${{ runner.temp }}\build-venv\Scripts\python.exe"
+          ./packaging/build-windows.ps1 -Python "${{ runner.temp }}\build-venv\Scripts\python.exe" -ClamAvManifest "${{ runner.temp }}\windows-clamav-manifest.json"
 
       - name: Verify install upgrade UI remove and state preservation
         shell: pwsh
         run: ./packaging/verify-windows-package.ps1
-
-      - name: Verify live ClamAV update and clean scan
-        shell: pwsh
-        run: ./packaging/verify-live-clamav.ps1 -Python python
 
       - name: Confirm tracked source was not mutated
         shell: pwsh
@@ -81,7 +82,7 @@ jobs:
       - name: Upload release files
         uses: actions/upload-artifact@v6
         with:
-          name: lfs-antivirus-aaha-v0.3.0-beta.1-windows-x64
+          name: lfs-antivirus-aaha-v0.4.0-beta.1-windows-x64
           path: dist/release/
           if-no-files-found: error
 
@@ -89,7 +90,160 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v6
         with:
-          name: lfs-antivirus-aaha-v0.3.0-beta.1-evidence
+          name: lfs-antivirus-aaha-v0.4.0-beta.1-windows-evidence
           path: dist/evidence/
           if-no-files-found: warn
           retention-days: 30
+
+  linux-release-candidate:
+    name: linux-appimage-flatpak-release-candidate
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
+      PIP_DISABLE_PIP_VERSION_CHECK: "1"
+      APPIMAGE_EXTRACT_AND_RUN: "1"
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Set up Python 3.13.14
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.13.14"
+
+      - name: Install Linux package tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y appstream-compose curl dbus-x11 dpkg flatpak libfuse2 xvfb
+          flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+          flatpak install --user -y flathub org.freedesktop.Platform//25.08
+
+      - name: Create exact Linux build environment
+        run: |
+          python -m venv "${{ runner.temp }}/build-venv"
+          "${{ runner.temp }}/build-venv/bin/python" -m pip install --no-deps -r packaging/requirements-build-linux.txt
+          "${{ runner.temp }}/build-venv/bin/python" -m pip check
+
+      - name: Audit exact Linux build dependencies
+        run: |
+          python -m venv "${{ runner.temp }}/audit-venv"
+          "${{ runner.temp }}/audit-venv/bin/python" -m pip install pip-audit==2.10.1
+          "${{ runner.temp }}/audit-venv/bin/python" -m pip_audit --strict -r packaging/requirements-build-linux.txt
+
+      - name: Install pinned AppImage build tool
+        run: |
+          curl --fail --location --proto '=https' --tlsv1.2 https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage --output "${{ runner.temp }}/appimagetool"
+          echo "a6d71e2b6cd66f8e8d16c37ad164658985e0cf5fcaa950c90a482890cb9d13e0  ${{ runner.temp }}/appimagetool" | sha256sum --check
+          curl --fail --location --proto '=https' --tlsv1.2 https://github.com/AppImage/type2-runtime/releases/download/continuous/runtime-x86_64 --output "${{ runner.temp }}/appimage-runtime-x86_64"
+          echo "1cc49bcf1e2ccd593c379adb17c9f85a36d619088296504de95b1d06215aebbf  ${{ runner.temp }}/appimage-runtime-x86_64" | sha256sum --check
+          chmod 0755 "${{ runner.temp }}/appimagetool"
+
+      - name: Build AppImage and Flatpak
+        env:
+          PYTHON: ${{ runner.temp }}/build-venv/bin/python
+          APPIMAGETOOL: ${{ runner.temp }}/appimagetool
+          APPIMAGE_RUNTIME: ${{ runner.temp }}/appimage-runtime-x86_64
+          AAHA_DOWNLOAD_CACHE: ${{ runner.temp }}/downloads
+        run: |
+          ./packaging/build-linux-payload.sh
+          python packaging/verify-linux-compliance.py
+          ./packaging/build-appimage.sh
+          docker run --rm --privileged \
+            --volume "${{ github.workspace }}:/workspace" \
+            --workdir /workspace \
+            ghcr.io/flathub-infra/flatpak-github-actions@sha256:2f06ee4d6948bf5ab39b7d6cb6d4c9e73847323ae46ddb6b57313a0dee75d4ff \
+            env FLATPAK_BUILDER_MODE=system ./packaging/build-flatpak.sh
+
+      - name: Smoke-test install launch update and removal
+        env:
+          LOCALAPPDATA: ${{ runner.temp }}/appimage-state
+        run: |
+          cd dist/release
+          sha256sum -c Local-First-Antivirus-v0.4.0-beta.1-x86_64.AppImage.sha256
+          sha256sum -c Local-First-Antivirus-v0.4.0-beta.1-x86_64.flatpak.sha256
+          cd ../..
+          xvfb-run -a dist/release/Local-First-Antivirus-v0.4.0-beta.1-x86_64.AppImage --smoke-test
+          flatpak install --user -y dist/release/Local-First-Antivirus-v0.4.0-beta.1-x86_64.flatpak
+          flatpak info --user --show-permissions com.aaha.lfs-antivirus-aaha | tee "${{ runner.temp }}/flatpak-permissions.txt"
+          ! grep -Eq '^filesystems=.*(host|home)' "${{ runner.temp }}/flatpak-permissions.txt"
+          flatpak run --command=sh com.aaha.lfs-antivirus-aaha//beta -c 'mkdir -p "$XDG_DATA_HOME/aaha/lfs-antivirus-aaha"; printf preserved > "$XDG_DATA_HOME/aaha/lfs-antivirus-aaha/state-preservation-test"'
+          dbus-run-session -- xvfb-run -a flatpak run com.aaha.lfs-antivirus-aaha//beta --smoke-test
+          flatpak update --user -y com.aaha.lfs-antivirus-aaha
+          flatpak uninstall --user -y com.aaha.lfs-antivirus-aaha
+          test -f "$HOME/.var/app/com.aaha.lfs-antivirus-aaha/data/aaha/lfs-antivirus-aaha/state-preservation-test"
+
+      - name: Confirm tracked source was not mutated
+        run: git diff --exit-code
+
+      - name: Upload Linux release files
+        uses: actions/upload-artifact@v6
+        with:
+          name: lfs-antivirus-aaha-v0.4.0-beta.1-linux-x86-64
+          path: dist/release/
+          if-no-files-found: error
+
+  fedora-rpm-release-candidate:
+    name: fedora-rpm-release-candidate
+    runs-on: ubuntu-latest
+    container: fedora:44
+    timeout-minutes: 45
+    steps:
+      - name: Install Fedora build and runtime dependencies
+        run: dnf install -y git rpm-build python3-devel python3-tkinter clamav clamav-freshclam shadow-utils util-linux xorg-x11-server-Xvfb
+
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Run source tests and build RPM
+        env:
+          LOCALAPPDATA: /tmp/lfs-antivirus-aaha-tests
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          python3 -m unittest discover -s tests -v
+          ./packaging/build-rpm.sh
+
+      - name: Install smoke-test and remove RPM
+        run: |
+          useradd --create-home --shell /bin/bash aaha-tester
+          dnf install -y dist/release/lfs-antivirus-aaha-0.4.0-0.1.beta1*.x86_64.rpm
+          state_root="/home/aaha-tester/.local/share/AAHA/lfs-antivirus-aaha"
+          install -d -o aaha-tester -g aaha-tester "$state_root"
+          runuser -u aaha-tester -- sh -c 'printf preserved > "$HOME/.local/share/AAHA/lfs-antivirus-aaha/state-preservation-test"'
+          runuser -u aaha-tester -- env HOME=/home/aaha-tester xvfb-run -a local-first-antivirus --smoke-test
+          dnf reinstall -y dist/release/lfs-antivirus-aaha-0.4.0-0.1.beta1*.x86_64.rpm
+          dnf remove -y --no-autoremove lfs-antivirus-aaha
+          test -f "$state_root/state-preservation-test"
+          cd dist/release
+          sha256sum -c RPM-SOURCE-and-x86_64.sha256
+
+      - name: Confirm tracked source was not mutated
+        run: git diff --exit-code
+
+      - name: Upload RPM release files
+        uses: actions/upload-artifact@v6
+        with:
+          name: lfs-antivirus-aaha-v0.4.0-beta.1-rpm-x86-64
+          path: |
+            dist/release/*.rpm
+            dist/release/RPM-SOURCE-and-x86_64.sha256
+          if-no-files-found: error
+
+  release-gate:
+    name: release-gate
+    if: always()
+    needs:
+      - windows-release-candidate
+      - linux-release-candidate
+      - fedora-rpm-release-candidate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every package gate
+        env:
+          WINDOWS_RESULT: ${{ needs.windows-release-candidate.result }}
+          LINUX_RESULT: ${{ needs.linux-release-candidate.result }}
+          RPM_RESULT: ${{ needs.fedora-rpm-release-candidate.result }}
+        run: |
+          test "$WINDOWS_RESULT" = success
+          test "$LINUX_RESULT" = success
+          test "$RPM_RESULT" = success

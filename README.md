@@ -1,194 +1,147 @@
 # Local-First Antivirus
 
-Last Updated: 2026-07-29
+Last Updated: 2026-08-05
 
-Local-First Antivirus is an open-source Windows desktop scanner from
+Local-First Antivirus is an open-source, on-demand desktop scanner from
 **Adam And His Agents (AAHA)** and the **AAHA Local-First Series**. Its canonical
 repository slug is `lfs-antivirus-aaha`.
 
 > [!IMPORTANT]
-> `0.3.0-beta.1` is an unsigned public prerelease. It is an on-demand interface
-> for a separately installed ClamAV engine, not a replacement for Microsoft
-> Defender or another supported security product. Verify the release checksum
-> before running the installer and expect Windows to identify its publisher as
-> unknown until AAHA provisions a code-signing certificate.
+> `0.4.0-beta.1` is an unsigned prerelease, not real-time protection and not a
+> replacement for Microsoft Defender or another supported endpoint-security
+> product. Keep established protection enabled and review every skipped,
+> oversized, failed, or cancelled item before interpreting a scan.
 
-## What changed in this checkpoint
+## Platforms and engine providers
 
-The earlier demonstration hash scanner and broken direct-CVD importer are no
-longer active. The UI now:
+All releases invoke ClamAV as separate command-line executables; the application
+does not link `libclamav`.
 
-- validates user-selected absolute paths to `clamscan.exe` and `freshclam.exe`;
-- requires both executables to be real local files in the same installation
-  folder and rejects mapped drives plus link/reparse-point ancestry;
-- invokes them with fixed argument lists, `shell=False`, and no `PATH` lookup;
-- runs read-only, user-selected local file or folder scans through ClamAV;
-- reports ClamAV findings, ClamAV-reported scanned-file counts, exit errors, and
-  cancellation without claiming a failed scan was clean;
-- uses FreshClam for user-triggered official definition updates;
-- serializes definition updates across app processes, stages and validates a
-  candidate database before transactional activation, recovers interrupted
-  activation on startup, and retains the previous working database as a local
-  backup; and
-- preserves existing quarantine files and records while showing them only in a
-  read-only recovery view.
+- **Windows 10/11 x64:** verified separately installed ClamAV. Release tooling
+  verifies the supported upstream installer/signature, captures exact executable
+  SHA-256 values, and embeds that allow-manifest into the unsigned installer.
+- **AppImage x86-64:** bundled, pinned ClamAV 1.5.3 executable payload.
+- **Flatpak x86-64:** the same pinned ClamAV payload with portal-only selected
+  file/folder access and no broad host filesystem permission.
+- **Fedora RPM/COPR x86-64:** Fedora's system `clamav` and `clamav-freshclam`
+  packages, with their package provenance retained as the trust boundary.
 
-## Deliberately disabled or unavailable
+The AppImage/Flatpak payload verifies `clamscan` and `freshclam` against its
+generated SHA-256 manifest at every application start. The corresponding
+ClamAV 1.5.3 source archive, GPLv2 text, exact package/source hashes, build
+metadata, and notices are release requirements.
 
-- Quarantine, restore, and deletion controls are disabled. The earlier workflow
-  was not transactional enough for safe use.
-- The bundled AAHA demo definitions, heuristic findings, manual definition
-  import/export, direct CVD downloads, and inert App Update URL are removed.
-- Mapped/UNC targets and paths with symbolic-link, junction, or reparse-point
-  ancestry are rejected. Recursive scans instruct ClamAV not to follow file or
-  directory symlinks and not to cross filesystems.
-- Archive/container expansion is disabled for this beta source checkpoint.
-- There is no real-time or on-access protection, service, elevation, scheduled
-  scan, automatic remediation, Security Center integration, tamper protection,
-  telemetry, or application self-update.
-- ClamAV applies its own engine limits. The UI does not yet enumerate and
-  reconcile every file ClamAV may internally skip.
-- Release automation validates the external adapter with official ClamAV 1.5.3
-  x64. Other ClamAV versions have not completed release acceptance.
+## Scan behavior
 
-## Local-first and network behavior
+- Scans are local, read-only, on-demand, and limited to a selected file/folder.
+- Directory traversal streams entries with bounded open iterators and batches;
+  it does not construct an unbounded inventory.
+- Every enumerated item is reconciled as scanned, skipped, oversized, failed,
+  or cancelled. Unreadable files are failures; files above 100 MiB are reported
+  separately. A failed or incomplete scan is never presented as clean.
+- Symbolic links are not followed. Network/UNC targets, link/reparse-point target
+  ancestry, cross-filesystem traversal, and archive expansion are disabled.
+- Cancellation terminates the external process tree and accounts for remaining
+  batch items.
+- Quarantine, restore, deletion, real-time protection, scheduling, elevation,
+  Defender replacement, Security Center integration, and automatic remediation
+  are absent. Existing legacy quarantine data is visible read-only.
 
-Selected files are read locally by the external `clamscan.exe` process. AAHA
-does not upload files, paths, hashes, findings, logs, settings, or quarantine
-data, and the application contains no telemetry or account system.
+## Definition updates
 
-Network access occurs only when the user presses **Update Definitions**.
-`freshclam.exe` then contacts ClamAV's configured official database mirror. The
-application does not implement automatic definition or application updates.
+The user-visible **Update Definitions** action starts FreshClam. The candidate
+database is staged separately, checked for Main/Daily files, loaded by ClamAV,
+and atomically activated. The previous working set is retained. A transaction
+marker and startup recovery finish or roll back an interrupted activation;
+updates are serialized across app processes. The commit phase is deliberately
+non-cancellable once its atomic barrier begins.
 
-See [Privacy](PRIVACY.md), [Architecture](docs/ARCHITECTURE.md), and
-[Local-First Series](docs/LOCAL_FIRST_SERIES.md) for the complete boundaries.
+This is the application's only network action. It contacts ClamAV's configured
+official database mirror. The application has no AAHA telemetry, analytics,
+cloud account, remote scan, or automatic application updater.
 
-## Install the packaged beta
+## Install the beta
 
-Download these two files from the GitHub `v0.3.0-beta.1` prerelease:
+Download the appropriate x86-64 artifact and checksum from the
+`v0.4.0-beta.1` GitHub prerelease.
 
-- `Local-First-Antivirus-v0.3.0-beta.1-Windows-x64-Setup.exe`
-- `SHA256SUMS`
+AppImage (Ubuntu 22.04 or newer, Debian 12 or newer, current Fedora):
 
-In PowerShell, verify the installer before opening it:
+```sh
+sha256sum -c Local-First-Antivirus-v0.4.0-beta.1-x86_64.AppImage.sha256
+chmod 0755 Local-First-Antivirus-v0.4.0-beta.1-x86_64.AppImage
+./Local-First-Antivirus-v0.4.0-beta.1-x86_64.AppImage
+```
+
+Flatpak bundle:
+
+```sh
+sha256sum -c Local-First-Antivirus-v0.4.0-beta.1-x86_64.flatpak.sha256
+flatpak install --user ./Local-First-Antivirus-v0.4.0-beta.1-x86_64.flatpak
+flatpak run com.aaha.lfs-antivirus-aaha
+```
+
+Fedora RPM or shared COPR:
+
+```sh
+sudo dnf install ./lfs-antivirus-aaha-0.4.0-0.1.beta1*.x86_64.rpm
+local-first-antivirus
+```
+
+Windows PowerShell:
 
 ```powershell
-(Get-FileHash .\Local-First-Antivirus-v0.3.0-beta.1-Windows-x64-Setup.exe -Algorithm SHA256).Hash.ToLowerInvariant()
+(Get-FileHash .\Local-First-Antivirus-v0.4.0-beta.1-Windows-x64-Setup.exe -Algorithm SHA256).Hash.ToLowerInvariant()
 Get-Content .\SHA256SUMS
 ```
 
-The values must match. The per-user installer places the application below
-`%LOCALAPPDATA%\Programs\AAHA\lfs-antivirus-aaha`, does not require elevation,
-and preserves application state during upgrade and uninstall. It contains the
-Python/Tk runtime needed by the UI, but does not contain ClamAV or definitions.
+The Windows installer is per-user and unsigned until **Technology Biased LLC**
+completes Microsoft Artifact Signing. Expect an unknown-publisher warning. It
+does not bundle ClamAV. Application state is outside the installed program
+directory and is preserved by upgrade and uninstall.
 
-## Source requirements
+Flatpak is distributed directly, not submitted to Flathub. It can scan only
+paths explicitly granted through the desktop file chooser portal. AppImage and
+RPM can scan any selected path readable by the invoking user.
 
-- Windows 10 or Windows 11
-- Python 3.10 or later available as `python`
-- Tkinter included with the selected Python installation
-- A separately installed ClamAV distribution containing `clamscan.exe` and
-  `freshclam.exe` in the same directory
+## Local data
 
-Neither source nor the packaged beta bundles ClamAV. Obtain ClamAV through the
-[official ClamAV installation guidance](https://docs.clamav.net/manual/Installing.html)
-and review its own license and security guidance.
+Windows uses `%LOCALAPPDATA%\AAHA\lfs-antivirus-aaha`. Linux follows XDG data,
+config, and state directories. Definitions, prior-definition backup, settings,
+bounded activity logs, and preserved legacy quarantine state remain local.
 
-## Run from source
+If the Windows canonical directory is absent but `%LOCALAPPDATA%\LocalShieldAV`
+exists, the legacy directory continues in place. The application does not
+automatically move, merge, restore, or delete legacy state.
 
-From the repository root in PowerShell:
+## Run and verify from source
 
-```powershell
-.\run-lfs-antivirus-aaha.ps1
-```
+Python 3.10+ with Tkinter is required. Windows source use requires a supported
+ClamAV installation; Fedora source/RPM use system ClamAV.
 
-Or run the Python module directly:
-
-```powershell
+```sh
 python -m lfs_antivirus_aaha.app
-```
-
-Then:
-
-1. Open **ClamAV Engine**.
-2. Select `clamscan.exe` and `freshclam.exe` from the same installation.
-3. Select **Validate Exact Paths**.
-4. Select **Update Definitions**. This is the only update action that uses the
-   network.
-5. Choose a local file or folder on **Scan** and start the on-demand scan.
-
-Executable paths must be revalidated after each application start. Saved paths
-are local convenience values, not a durable trust decision.
-
-## Development source-copy installer
-
-`install-lfs-antivirus-aaha.ps1` remains a development source-copy helper. It
-copies this repository to:
-
-```text
-%LOCALAPPDATA%\Programs\AAHA\lfs-antivirus-aaha
-```
-
-It is not the packaged beta installer and remains outside the release artifact
-set. Do not present it as a release download.
-
-## Local data and legacy preservation
-
-New installations use:
-
-```text
-%LOCALAPPDATA%\AAHA\lfs-antivirus-aaha
-```
-
-The active ClamAV database is stored below `clamav-database`; the previous
-working database is retained below `clamav-database.backup` after a successful
-replacement. Short-lived sibling staging/previous directories and an activation
-marker make interrupted directory swaps recoverable on the next start. A
-persistent lock file serializes recovery and definition updates across app
-processes. Download and validation can be cancelled; once the atomic commit
-phase begins, the app finishes or recovers it instead of interrupting the swap.
-
-If the canonical AAHA directory does not exist and the legacy
-`%LOCALAPPDATA%\LocalShieldAV` directory does, the application continues using
-the legacy directory in place. It does not automatically move, restore, delete,
-or reconcile old quarantine payloads. If both locations exist, the canonical
-AAHA directory wins. Preserve both until legacy state has been reviewed safely.
-
-## Run tests
-
-The local tests use synthetic process output and temporary files; they do not
-require ClamAV or live malware. Windows CI additionally exercises real
-cross-process locking, process-tree cancellation, and mapped-drive rejection.
-The release-candidate workflow builds the installer, tests install/upgrade/UI
-launch/removal/state preservation, and runs a real clean-file scan after an
-official FreshClam definition update.
-
-```powershell
-$env:LOCALAPPDATA = Join-Path $env:TEMP "lfs-antivirus-aaha-tests"
 python -m unittest discover -s tests -v
-python -m compileall -q lfs_antivirus_aaha tests
+python -m compileall -q lfs_antivirus_aaha packaging tests
 ```
 
-## Repository layout
+Linux release builders use pinned PyInstaller inputs, a pinned AppImage tool and
+runtime, Freedesktop 25.08 Flatpak runtime, and ClamAV package/source hashes.
+`packaging/verify-linux-compliance.py` is the bundled-GPL release gate.
 
-```text
-lfs_antivirus_aaha/   Tkinter UI, fixed-argv engine adapter, scanner, updater, state
-tests/                Synthetic tests plus Windows release integration gates
-assets/               Source vector and generated multi-resolution Windows icon
-packaging/            Exact build inputs, installer, verification, notices, notes
-docs/                 Architecture and Local-First Series documentation
-.github/workflows/    Source validation and non-publishing release-candidate build
-```
+## Release boundaries
 
-## Security and contributions
+The next-minor beta remains “implementation complete; external gates pending”
+until physical ordinary-user Windows 10/11 acceptance, Technology Biased LLC
+Artifact Signing verification, and the independent security-review gate pass.
+Source/package tests do not replace those external gates.
 
-- Review [SECURITY.md](SECURITY.md) before reporting a vulnerability.
-- Review [CONTRIBUTING.md](CONTRIBUTING.md) before proposing changes.
-- Changes are recorded in [CHANGELOG.md](CHANGELOG.md).
+See [Privacy](PRIVACY.md), [Security](SECURITY.md),
+[Architecture](docs/ARCHITECTURE.md), and [Notices](NOTICE.md).
 
 ## License
 
-Copyright 2026 Adam And His Agents (AAHA). Released under the
-[MIT License](LICENSE). The optional external ClamAV project is separate and is
-licensed under its own terms; attribution is in [NOTICE.md](NOTICE.md).
+AAHA source is released under the [MIT License](LICENSE). Bundled AppImage and
+Flatpak distributions aggregate separately licensed ClamAV GPLv2 executables;
+see [packaged runtime notices](packaging/THIRD_PARTY_NOTICES.md). The RPM uses
+Fedora's separately packaged ClamAV.

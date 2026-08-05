@@ -5,7 +5,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
-$version = "0.3.0-beta.1"
+$version = "0.4.0-beta.1"
 $appName = "Local-First Antivirus"
 $appExeName = "$appName.exe"
 $bundleRoot = Join-Path $repoRoot "dist\windows\$appName"
@@ -27,7 +27,7 @@ if ($fileInfo.ProductName -ne $appName) {
 if ($fileInfo.ProductVersion -ne $version -or $fileInfo.FileVersion -ne $version) {
     throw "Unexpected executable version metadata: $($fileInfo.FileVersion) / $($fileInfo.ProductVersion)"
 }
-if ($fileInfo.CompanyName -ne "Adam And His Agents (AAHA)") {
+if ($fileInfo.CompanyName -ne "Technology Biased LLC") {
     throw "Unexpected CompanyName: $($fileInfo.CompanyName)"
 }
 
@@ -48,7 +48,7 @@ foreach ($signature in @($appSignature, $installerSignature)) {
     }
 }
 if ($appSignature.Status -ne 'NotSigned' -or $installerSignature.Status -ne 'NotSigned') {
-    throw "This beta is expected to be unsigned until AAHA provisions a code-signing certificate."
+    throw "This beta is expected to be unsigned until Technology Biased LLC provisions Artifact Signing."
 }
 
 Add-Type -AssemblyName System.Drawing
