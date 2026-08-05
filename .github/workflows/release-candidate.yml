@@ -115,7 +115,7 @@ jobs:
       - name: Install Linux package tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y curl dpkg flatpak flatpak-builder libfuse2 xvfb
+          sudo apt-get install -y appstream-compose curl dpkg flatpak flatpak-builder libfuse2 xvfb
           flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
           flatpak install --user -y flathub org.freedesktop.Platform//25.08 org.freedesktop.Sdk//25.08
 
