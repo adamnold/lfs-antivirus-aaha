@@ -169,7 +169,7 @@ jobs:
           ! grep -Eq '^filesystems=.*(host|home)' "${{ runner.temp }}/flatpak-permissions.txt"
           flatpak run --command=sh com.aaha.lfs-antivirus-aaha//beta -c 'mkdir -p "$XDG_DATA_HOME/aaha/lfs-antivirus-aaha"; printf preserved > "$XDG_DATA_HOME/aaha/lfs-antivirus-aaha/state-preservation-test"'
           dbus-run-session -- xvfb-run -a flatpak run com.aaha.lfs-antivirus-aaha//beta --smoke-test
-          flatpak install --user -y --reinstall dist/release/Local-First-Antivirus-v0.4.0-beta.1-x86_64.flatpak
+          flatpak update --user -y com.aaha.lfs-antivirus-aaha
           flatpak uninstall --user -y com.aaha.lfs-antivirus-aaha
           test -f "$HOME/.var/app/com.aaha.lfs-antivirus-aaha/data/aaha/lfs-antivirus-aaha/state-preservation-test"
 
