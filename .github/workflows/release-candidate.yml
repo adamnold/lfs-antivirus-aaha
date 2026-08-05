@@ -115,7 +115,7 @@ jobs:
       - name: Install Linux package tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y appstream-compose curl dpkg flatpak libfuse2 xvfb
+          sudo apt-get install -y appstream-compose curl dbus-x11 dpkg flatpak libfuse2 xvfb
           flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
           flatpak install --user -y flathub org.freedesktop.Platform//25.08
 
@@ -168,7 +168,7 @@ jobs:
           flatpak info --user --show-permissions com.aaha.lfs-antivirus-aaha | tee "${{ runner.temp }}/flatpak-permissions.txt"
           ! grep -Eq '^filesystems=.*(host|home)' "${{ runner.temp }}/flatpak-permissions.txt"
           flatpak run --command=sh com.aaha.lfs-antivirus-aaha//beta -c 'mkdir -p "$XDG_DATA_HOME/aaha/lfs-antivirus-aaha"; printf preserved > "$XDG_DATA_HOME/aaha/lfs-antivirus-aaha/state-preservation-test"'
-          xvfb-run -a flatpak run com.aaha.lfs-antivirus-aaha//beta --smoke-test
+          dbus-run-session -- xvfb-run -a flatpak run com.aaha.lfs-antivirus-aaha//beta --smoke-test
           flatpak install --user -y --reinstall dist/release/Local-First-Antivirus-v0.4.0-beta.1-x86_64.flatpak
           flatpak uninstall --user -y com.aaha.lfs-antivirus-aaha
           test -f "$HOME/.var/app/com.aaha.lfs-antivirus-aaha/data/aaha/lfs-antivirus-aaha/state-preservation-test"
