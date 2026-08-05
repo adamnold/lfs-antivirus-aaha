@@ -33,7 +33,7 @@ case "$builder_mode" in
             echo "Install flatpak-builder before using system builder mode." >&2
             exit 1
         }
-        "$builder" --install-deps-from=flathub --force-clean --repo="$repository" --default-branch=beta "$build_directory" "$manifest"
+        "$builder" --disable-rofiles-fuse --install-deps-from=flathub --force-clean --repo="$repository" --default-branch=beta "$build_directory" "$manifest"
         ;;
     *)
         echo "FLATPAK_BUILDER_MODE must be user or system." >&2
