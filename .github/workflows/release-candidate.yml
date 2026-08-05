@@ -115,9 +115,9 @@ jobs:
       - name: Install Linux package tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y appstream-compose curl dpkg flatpak flatpak-builder libfuse2 xvfb
+          sudo apt-get install -y appstream-compose curl dpkg flatpak libfuse2 xvfb
           flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
-          flatpak install --user -y flathub org.flatpak.Builder//stable org.freedesktop.Platform//25.08 org.freedesktop.Sdk//25.08
+          flatpak install --user -y flathub org.freedesktop.Platform//25.08
 
       - name: Create exact Linux build environment
         run: |
@@ -149,7 +149,11 @@ jobs:
           ./packaging/build-linux-payload.sh
           python packaging/verify-linux-compliance.py
           ./packaging/build-appimage.sh
-          ./packaging/build-flatpak.sh
+          docker run --rm --privileged \
+            --volume "${{ github.workspace }}:/workspace" \
+            --workdir /workspace \
+            ghcr.io/flathub-infra/flatpak-github-actions@sha256:2f06ee4d6948bf5ab39b7d6cb6d4c9e73847323ae46ddb6b57313a0dee75d4ff \
+            env FLATPAK_BUILDER_MODE=system ./packaging/build-flatpak.sh
 
       - name: Smoke-test install launch update and removal
         env:
