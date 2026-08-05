@@ -224,3 +224,22 @@ jobs:
             dist/release/*.rpm
             dist/release/RPM-SOURCE-and-x86_64.sha256
           if-no-files-found: error
+
+  release-gate:
+    name: release-gate
+    if: always()
+    needs:
+      - windows-release-candidate
+      - linux-release-candidate
+      - fedora-rpm-release-candidate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every package gate
+        env:
+          WINDOWS_RESULT: ${{ needs.windows-release-candidate.result }}
+          LINUX_RESULT: ${{ needs.linux-release-candidate.result }}
+          RPM_RESULT: ${{ needs.fedora-rpm-release-candidate.result }}
+        run: |
+          test "$WINDOWS_RESULT" = success
+          test "$LINUX_RESULT" = success
+          test "$RPM_RESULT" = success
