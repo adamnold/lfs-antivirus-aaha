@@ -117,7 +117,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y appstream-compose curl dpkg flatpak flatpak-builder libfuse2 xvfb
           flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
-          flatpak install --user -y flathub org.freedesktop.Platform//25.08 org.freedesktop.Sdk//25.08
+          flatpak install --user -y flathub org.flatpak.Builder//stable org.freedesktop.Platform//25.08 org.freedesktop.Sdk//25.08
 
       - name: Create exact Linux build environment
         run: |

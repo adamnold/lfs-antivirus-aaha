@@ -16,10 +16,13 @@ fi
 rm -rf "$build_directory" "$repository"
 rm -f "$release" "$release.sha256"
 mkdir -p "$repo_root/dist/release"
-if command -v "$builder" >/dev/null 2>&1; then
+if flatpak info --user org.flatpak.Builder >/dev/null 2>&1; then
+    flatpak run --command=flatpak-builder org.flatpak.Builder --user --force-clean --repo="$repository" --default-branch=beta "$build_directory" "$manifest"
+elif command -v "$builder" >/dev/null 2>&1; then
     "$builder" --user --force-clean --repo="$repository" --default-branch=beta "$build_directory" "$manifest"
 else
-    flatpak run --command=flatpak-builder org.flatpak.Builder --user --force-clean --repo="$repository" --default-branch=beta "$build_directory" "$manifest"
+    echo "Install flatpak-builder or org.flatpak.Builder before building." >&2
+    exit 1
 fi
 flatpak build-bundle "$repository" "$release" com.aaha.lfs-antivirus-aaha beta
 (cd "$(dirname "$release")" && sha256sum "$(basename "$release")" > "$(basename "$release").sha256")
